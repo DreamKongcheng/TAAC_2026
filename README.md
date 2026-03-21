@@ -83,11 +83,11 @@ TODO
 
 ## 相关工作
 **2025届**  
-[1] https://pd-ch.github.io/blog/2025-07-31-taac-participate-record/
-[2] https://github.com/zcyeee/TAAC
+[1] https://pd-ch.github.io/blog/2025-07-31-taac-participate-record/  
+[2] https://github.com/zcyeee/TAAC  
 
 **2026届**  
-[1] https://github.com/creatorwyx/TAAC2026-CTR-Baseline
+[1] https://github.com/creatorwyx/TAAC2026-CTR-Baseline  
 
 ## References
 [1] InterFormer: Effective Heterogeneous Interaction Learning for Click-Through Rate Prediction. CIKM, 2025.  
