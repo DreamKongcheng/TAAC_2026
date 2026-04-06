@@ -2,3 +2,6 @@ data/
 outputs/
 .venv/
 __pycache__/
+
+# TAAC2026 Symbiosis
+config/gen/symbiosis/ 

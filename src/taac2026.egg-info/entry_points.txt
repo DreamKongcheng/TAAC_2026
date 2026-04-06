@@ -1,0 +1,3 @@
+[console_scripts]
+taac-evaluate = taac2026.evaluate:main
+taac-train = taac2026.train:main

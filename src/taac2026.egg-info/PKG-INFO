@@ -1,3 +1,17 @@
+Metadata-Version: 2.4
+Name: taac2026
+Version: 0.1.0
+Summary: TAAC 2026 experiment workspace
+Requires-Python: >=3.12
+Description-Content-Type: text/markdown
+License-File: LICENSE
+Requires-Dist: matplotlib>=3.10
+Requires-Dist: numpy>=2.1
+Requires-Dist: pyarrow>=18.0
+Requires-Dist: pytest>=8.3
+Requires-Dist: torch>=2.6
+Dynamic: license-file
+
 # TAAC_2026
 
 > [!NOTE]  
@@ -15,10 +29,6 @@ https://algo.qq.com/#intro
 ------
 
 ## 我们的工作
-
-![Model Performance VS Size](figures/model_performance_vs_size.svg)
-
-![Model Performance VS Compute](figures/model_performance_vs_compute.svg)
 
 当前 main 分支已经收敛为一套“共享最小运行时 + 目录式实验包”的实验工作区，目标是在同一份 parquet batch 契约上快速接入外部方案、完成训练、评估与回归验证。
 
@@ -55,17 +65,13 @@ uv run pytest tests -q
 
 ## 当前独立实验包
 
-| 实验包         | 目录                                                   | 公开来源                                                                                                                                      | 默认输出目录                 | 当前可复核状态                                |
-| -------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | --------------------------------------------- |
-| Baseline       | [config/gen/baseline](config/gen/baseline)             | 本仓库本地 unified baseline                                                                                                                   | `outputs/gen/baseline`       | 有 sample smoke summary                       |
-| CTR Baseline   | [config/gen/ctr_baseline](config/gen/ctr_baseline)     | [creatorwyx/TAAC2026-CTR-Baseline](https://github.com/creatorwyx/TAAC2026-CTR-Baseline)                                                       | `outputs/gen/ctr_baseline`   | 有 forward regression 与 sample smoke summary |
-| DeepContextNet | [config/gen/deepcontextnet](config/gen/deepcontextnet) | [suyanli220/TAAC-2026-Baseline-Tencent-Advertisement-Contest](https://github.com/suyanli220/TAAC-2026-Baseline-Tencent-Advertisement-Contest) | `outputs/gen/deepcontextnet` | 有 forward regression 与 sample smoke summary |
-| InterFormer    | [config/gen/interformer](config/gen/interformer)       | [InterFormer paper](https://arxiv.org/abs/2411.09852)                                                                                         | `outputs/gen/interformer`    | 有 forward regression 与 sample smoke summary |
-| OneTrans       | [config/gen/onetrans](config/gen/onetrans)             | [OneTrans paper](https://arxiv.org/abs/2510.26104)                                                                                            | `outputs/gen/onetrans`       | 有 forward regression 与 sample smoke summary |
-| HyFormer       | [config/gen/hyformer](config/gen/hyformer)             | [HyFormer paper](https://arxiv.org/abs/2601.12681)                                                                                            | `outputs/gen/hyformer`       | 有 forward regression 与 sample smoke summary |
-| UniRec         | [config/gen/unirec](config/gen/unirec)                 | [hojiahao/TAAC2026](https://github.com/hojiahao/TAAC2026)                                                                                     | `outputs/gen/unirec`         | 有 forward regression 与 sample smoke summary |
-| UniScaleFormer | [config/gen/uniscaleformer](config/gen/uniscaleformer) | [twx145/Unirec](https://github.com/twx145/Unirec)                                                                                             | `outputs/gen/uniscaleformer` | 有 forward regression 与 sample smoke summary |
-| O_o            | [config/gen/oo](config/gen/oo)                         | [salmon1802/O_o](https://github.com/salmon1802/O_o)                                                                                           | `outputs/gen/oo`             | 有 forward regression 与 sample smoke summary |
+| 实验包      | 目录                                             | 公开来源                                              | 默认输出目录              | 当前可复核状态                                |
+| ----------- | ------------------------------------------------ | ----------------------------------------------------- | ------------------------- | --------------------------------------------- |
+| Baseline    | [config/gen/baseline](config/gen/baseline)       | 本仓库本地 unified baseline                           | `outputs/gen/baseline`    | 有 sample smoke summary                       |
+| InterFormer | [config/gen/interformer](config/gen/interformer) | [InterFormer paper](https://arxiv.org/abs/2411.09852) | `outputs/gen/interformer` | 有 forward regression 与 sample smoke summary |
+| OneTrans    | [config/gen/onetrans](config/gen/onetrans)       | [OneTrans paper](https://arxiv.org/abs/2510.26104)    | `outputs/gen/onetrans`    | 有 forward regression 与 sample smoke summary |
+| HyFormer    | [config/gen/hyformer](config/gen/hyformer)       | [HyFormer paper](https://arxiv.org/abs/2601.12681)    | `outputs/gen/hyformer`    | 有 forward regression 与 sample smoke summary |
+| O_o         | [config/gen/oo](config/gen/oo)                   | [salmon1802/O_o](https://github.com/salmon1802/O_o)   | `outputs/gen/oo`          | 有 forward regression 与 sample smoke summary |
 
 当前 2025 届公开方案里，只有 O_o 仍作为独立实验包维护；其它 2025 方案目前只保留为结构灵感和可迁移组件来源，不再在此分支里伪装成仍然存在的独立入口。
 
@@ -76,7 +82,7 @@ uv run pytest tests -q
 3. `src/taac2026/runtime.py` 中的 `Packet`、`Blackboard`、`LayerStack`、`Arbiter` 仍然保留，主要用于测试和后续扩展；主训练入口仍然是直接的 epoch / batch 循环。
 4. 当前 smoke 结果只用于证明链路可跑，不代表正式赛题上的可比结论。
 
-补充说明：当前 `config/gen` 下九个独立实验包的默认 `epochs` 都已经统一提升到 10，避免 sample smoke 因训练轮数过短而过度低估模型上限。
+补充说明：当前 `config/gen` 下五个独立实验包的默认 `epochs` 都已经统一提升到 10，避免 sample smoke 因训练轮数过短而过度低估模型上限。
 
 更详细的训练命令、输出文件与当前 smoke 记录，见 [docs/dev.md](docs/dev.md) 与 [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md)。
 
@@ -150,7 +156,7 @@ https://huggingface.co/datasets/TAAC2026/data_sample_1000
 
 ## 相关工作
 以下按公开可访问资料整理，优先保留能直接借鉴代码、EDA、方法说明和赛事资料的链接，持续补充。
-调查时间: 2026-04-02
+调查时间: 2026-04-05
 
 **2025届：官方 / 公开代码**  
 1. [TencentAdvertisingAlgorithmCompetition/baseline_2025](https://github.com/TencentAdvertisingAlgorithmCompetition/baseline_2025) 官方 parquet baseline，主体为 SASRec，并附带 faiss-based-ann 检索与 RQ-VAE 扩展入口。  
