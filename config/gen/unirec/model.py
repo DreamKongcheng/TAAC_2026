@@ -163,6 +163,11 @@ class BlockAttnRes(nn.Module):
 		inter_block = torch.matmul(weights.unsqueeze(1), keys).squeeze(1)  # (B, D)
 		combined = layer_output + inter_block.unsqueeze(1)  # (B, L, D)
 
+		# Re-derive last token from post-residual output so partial_sum
+		# stays consistent with the hidden states actually propagated.
+		current_last = combined[:, -1, :]
+		partial_sum = partial_sum - layer_output[:, -1, :] + current_last
+
 		return combined, partial_sum, current_last
 
 
