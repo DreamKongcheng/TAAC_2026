@@ -104,22 +104,16 @@ def evaluate_checkpoint(
     if resolved_export_mode != "none" and resolved_quantization_mode != "none":
         raise ValueError("Inference export currently requires quantization mode 'none'")
 
+    example_batch = None
+    resolved_export_path = Path(export_path) if export_path is not None else external_profiler_output_dir / "inference_export.pt2"
     if resolved_export_mode != "none":
         example_batch = next(iter(val_loader)).to(runtime_execution.device)
-        resolved_export_path = Path(export_path) if export_path is not None else external_profiler_output_dir / "inference_export.pt2"
-        export_summary = export_model_for_inference(
-            runtime_execution.base_model,
-            example_batch,
-            mode=resolved_export_mode,
-            output_path=resolved_export_path,
-        )
-    else:
-        export_summary = export_model_for_inference(
-            runtime_execution.base_model,
-            next(iter(val_loader)).to(runtime_execution.device),
-            mode=resolved_export_mode,
-            output_path=external_profiler_output_dir / "inference_export.pt2",
-        )
+    export_summary = export_model_for_inference(
+        runtime_execution.base_model,
+        example_batch,
+        mode=resolved_export_mode,
+        output_path=resolved_export_path,
+    )
 
     logits, labels, groups, loss = collect_loader_outputs(
         execution_model,

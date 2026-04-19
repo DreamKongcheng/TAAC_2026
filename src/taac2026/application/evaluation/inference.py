@@ -34,7 +34,7 @@ def normalize_inference_export_mode(mode: str | None) -> str:
 
 def export_model_for_inference(
     model: torch.nn.Module,
-    example_batch: Any,
+    example_batch: Any | None,
     *,
     mode: str | None,
     output_path: str | Path,
@@ -48,6 +48,9 @@ def export_model_for_inference(
             "reason": None,
             "artifact_path": None,
         }
+
+    if example_batch is None:
+        raise ValueError("example_batch is required when export mode is active")
 
     resolved_output_path = Path(output_path)
     if resolved_output_path.suffix != ".pt2":

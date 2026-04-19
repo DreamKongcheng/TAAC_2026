@@ -47,6 +47,8 @@ def triton_rms_norm(hidden_states: torch.Tensor, weight: torch.Tensor, eps: floa
         raise ValueError("weight shape must match the last hidden dimension")
 
     hidden_dim = hidden_states.shape[-1]
+    if hidden_dim > 65536:
+        raise ValueError(f"triton_rms_norm supports hidden_dim up to 65536, got {hidden_dim}")
     flattened = hidden_states.contiguous().view(-1, hidden_dim)
     output = torch.empty_like(flattened)
 

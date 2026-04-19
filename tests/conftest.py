@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -72,6 +73,37 @@ def _build_test_file_classification() -> dict[str, str]:
     classification.update({filename: "integration" for filename in INTEGRATION_TEST_FILES})
     classification.update({filename: "gpu" for filename in GPU_TEST_FILES})
     return classification
+
+
+def _requested_collection_phases(config: pytest.Config) -> set[str] | None:
+    markexpr = str(getattr(getattr(config, "option", SimpleNamespace(markexpr="")), "markexpr", "") or "").strip()
+    if not markexpr:
+        return None
+    normalized = markexpr.replace("(", " ").replace(")", " ").lower()
+    tokens = [token for token in normalized.split() if token]
+    if not tokens:
+        return None
+    allowed_tokens = {"unit", "integration", "gpu", "or"}
+    if any(token not in allowed_tokens for token in tokens):
+        return None
+    phases = {token for token in tokens if token in {"unit", "integration", "gpu"}}
+    return phases or None
+
+
+def pytest_ignore_collect(collection_path: Path, config: pytest.Config) -> bool:
+    if collection_path.suffix != ".py":
+        return False
+
+    requested_phases = _requested_collection_phases(config)
+    if requested_phases is None:
+        return False
+
+    filename = collection_path.name
+    classification = _build_test_file_classification()
+    file_phase = classification.get(filename)
+    if file_phase is None:
+        return False
+    return file_phase not in requested_phases
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import torch
@@ -196,6 +197,96 @@ def test_evaluate_checkpoint_rejects_quantized_export_combination(test_workspace
             quantization_mode="int8",
             export_mode="torch-export",
         )
+
+
+def test_evaluate_checkpoint_skips_export_example_batch_when_export_is_disabled(
+    test_workspace: TestWorkspace,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    experiment_path = test_workspace.write_experiment_package()
+    experiment = load_experiment_package(experiment_path)
+    model = experiment.build_model_component(experiment.data, experiment.model, DENSE_FEATURE_DIM)
+    checkpoint_path = test_workspace.root / "compatible_no_export_batch.pt"
+    torch.save({"model_state_dict": model.state_dict()}, checkpoint_path)
+
+    class _SentinelLoader:
+        def __iter__(self):
+            raise AssertionError("export_mode='none' should not materialize an example batch")
+
+    fake_stats = SimpleNamespace(dense_dim=DENSE_FEATURE_DIM, pos_weight=1.0, val_size=1)
+
+    monkeypatch.setattr(
+        "taac2026.application.evaluation.service.resolve_experiment_builders",
+        lambda _experiment: SimpleNamespace(
+            build_data_pipeline=lambda *args: ([], _SentinelLoader(), fake_stats),
+            build_loss_stack=lambda *args: (torch.nn.BCEWithLogitsLoss(), None),
+        ),
+    )
+
+    class _RuntimeExecution:
+        def __init__(self, base_model: torch.nn.Module) -> None:
+            self.execution_model = base_model
+            self.base_model = base_model
+            self.device = torch.device("cpu")
+
+        def summary(self) -> dict[str, object]:
+            return {
+                "torch_compile": {"active": False},
+                "amp": {"active": False},
+            }
+
+    monkeypatch.setattr(
+        "taac2026.application.evaluation.service.prepare_evaluation_inference",
+        lambda model, train_config, device, quantization_mode=None: (
+            _RuntimeExecution(model),
+            {"mode": "none", "active": False},
+            train_config,
+        ),
+    )
+    monkeypatch.setattr(
+        "taac2026.application.evaluation.service.collect_loader_outputs",
+        lambda *args, **kwargs: (
+            torch.tensor([0.0]),
+            torch.tensor([0.0]),
+            torch.tensor([0]),
+            0.0,
+        ),
+    )
+    monkeypatch.setattr(
+        "taac2026.application.evaluation.service.compute_classification_metrics",
+        lambda labels, logits, groups: {"auc": 0.5, "pr_auc": 0.5, "gauc": {"coverage": 1.0}},
+    )
+    monkeypatch.setattr(
+        "taac2026.application.evaluation.service.measure_latency",
+        lambda *args, **kwargs: {
+            "warmup_batches": 0,
+            "warmup_samples": 0,
+            "measured_batches": 0,
+            "measured_samples": 0,
+            "profiled_batches": 0,
+            "mean_latency_ms_per_sample": 0.0,
+            "p95_latency_ms_per_sample": 0.0,
+        },
+    )
+    monkeypatch.setattr(
+        "taac2026.application.evaluation.service.build_evaluation_external_profiler_plan",
+        lambda **kwargs: {"tools": {}},
+    )
+    monkeypatch.setattr(
+        "taac2026.application.evaluation.service.write_external_profiler_plan_artifacts",
+        lambda *args, **kwargs: None,
+    )
+
+    payload = evaluate_checkpoint(
+        experiment_path=experiment_path,
+        checkpoint_path=checkpoint_path,
+        output_path=test_workspace.root / "evaluation_no_export_batch.json",
+        experiment=experiment,
+        export_mode="none",
+    )
+
+    assert payload["export"]["active"] is False
+    assert payload["export"]["mode"] == "none"
 
 
 @pytest.mark.parametrize(
