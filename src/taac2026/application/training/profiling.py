@@ -12,7 +12,6 @@ from torch.profiler import ProfilerActivity, profile
 
 from ...domain.experiment import ExperimentSpec
 from ...domain.metrics import percentile, safe_mean
-from ...infrastructure.nn.defaults import resolve_experiment_builders
 from .runtime_optimization import RuntimeExecution, prepare_runtime_execution
 
 
@@ -441,6 +440,8 @@ def collect_compute_profile(
     latency: dict[str, Any] | None = None,
     runtime_execution: RuntimeExecution | None = None,
 ) -> dict[str, float | int | str]:
+    from ...infrastructure.nn.defaults import resolve_experiment_builders
+
     device = torch.device(device)
     train_batches_per_epoch = _loader_num_batches(train_loader)
     val_batches_per_epoch = _loader_num_batches(val_loader)

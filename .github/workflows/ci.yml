@@ -56,8 +56,18 @@ jobs:
       - name: Run unit tests with coverage
         run: uv run --with coverage coverage run --data-file=.coverage.cpu -m pytest -m unit -v
 
-      - name: Run integration tests with coverage
-        run: uv run --with coverage coverage run --data-file=.coverage.cpu --append -m pytest -m integration -v
+      - name: Summarize CPU test routing
+        run: |
+          uv run python - <<'PY'
+          import os
+          from tests import conftest
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("## CPU test routing\n\n")
+              handle.write(f"- executed on ubuntu-latest: unit ({len(conftest.UNIT_TEST_FILES)} files)\\n")
+              handle.write(f"- delegated to GPU runner: integration ({len(conftest.INTEGRATION_TEST_FILES)} files), gpu ({len(conftest.GPU_TEST_FILES)} files)\\n")
+              handle.write("- reason: the repository pins CUDA-linked TorchRec/fbgemm wheels, so stack-level imports require libcuda.so.1 even for CPU assertions.\\n")
+          PY
 
       - name: Upload CPU coverage data
         if: always()
@@ -87,8 +97,30 @@ jobs:
       - name: Sync project environment
         run: uv sync --locked
 
-      - name: Run GPU tests with coverage
-        run: uv run --with coverage coverage run --data-file=.coverage.gpu -m pytest -m gpu -v
+      - name: Capture GPU runtime evidence
+        run: uv run python scripts/verify_gpu_env.py --json > gpu-env-report.json
+
+      - name: Run integration and GPU tests with coverage
+        run: uv run --with coverage coverage run --data-file=.coverage.gpu -m pytest -m "integration or gpu" -v
+
+      - name: Summarize GPU evidence
+        run: |
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from tests import conftest
+
+          report = json.loads(Path("gpu-env-report.json").read_text(encoding="utf-8"))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("## GPU runtime evidence\n\n")
+              handle.write("- verifier: scripts/verify_gpu_env.py --json (same probe used by .devcontainer/post-create.sh)\\n")
+              handle.write(f"- device: {report['device']}\\n")
+              handle.write(f"- torch / torchrec / fbgemm / triton: {report['torch']} / {report['torchrec']} / {report['fbgemm_gpu']} / {report['triton']}\\n")
+              handle.write(f"- executed markers: integration ({len(conftest.INTEGRATION_TEST_FILES)} files) + gpu ({len(conftest.GPU_TEST_FILES)} files)\\n")
+              handle.write(f"- embedding probe: {report['embedding_probe']}\\n")
+          PY
 
       - name: Upload GPU coverage data
         if: always()
@@ -96,6 +128,13 @@ jobs:
         with:
           name: coverage-gpu-data
           path: .coverage.gpu
+
+      - name: Upload GPU runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gpu-runtime-evidence
+          path: gpu-env-report.json
 
   coverage:
     name: Coverage Report
@@ -194,6 +233,50 @@ jobs:
       - name: Generate benchmark charts
         run: uv run taac-bench-report --input benchmark-result.json
 
+      - name: Summarize benchmark evidence
+        env:
+          BENCHMARK_STORE_ENABLED: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          performance_dir = Path("outputs/performance")
+          embedding_base = json.loads((performance_dir / "embedding_lookup.json").read_text(encoding="utf-8"))
+          embedding_torchrec = json.loads((performance_dir / "embedding_lookup_torchrec.json").read_text(encoding="utf-8"))
+          attention_base = json.loads((performance_dir / "attention_forward.json").read_text(encoding="utf-8"))
+          attention_triton = json.loads((performance_dir / "attention_forward_triton.json").read_text(encoding="utf-8"))
+
+          embedding_speedup = embedding_torchrec["throughput"] / embedding_base["throughput"]
+          attention_latency_ratio = attention_triton["median_ms"] / attention_base["median_ms"]
+          trace = {
+              "store_result_enabled": os.environ["BENCHMARK_STORE_ENABLED"].lower() == "true",
+              "alert_threshold_percent": 115,
+              "comment_on_alert": True,
+              "fail_on_alert": True,
+              "embedding_throughput_speedup": embedding_speedup,
+              "attention_latency_ratio": attention_latency_ratio,
+              "artifacts": [
+                  "benchmark-result.json",
+                  "outputs/performance",
+                  "docs/assets/figures/benchmarks",
+              ],
+          }
+          Path("benchmark-trace.json").write_text(json.dumps(trace, indent=2, sort_keys=True), encoding="utf-8")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("## Benchmark evidence\n\n")
+              handle.write(f"- store benchmark history: {trace['store_result_enabled']} (alert threshold 115%, comment-on-alert=true, fail-on-alert=true)\\n")
+              handle.write(
+                  f"- embedding throughput: {embedding_base['throughput']:.2f} -> {embedding_torchrec['throughput']:.2f} lookups/s ({embedding_speedup:.2f}x)\\n"
+              )
+              handle.write(
+                  f"- attention median latency: {attention_base['median_ms']:.4f} ms -> {attention_triton['median_ms']:.4f} ms ({attention_latency_ratio:.3f}x baseline)\\n"
+              )
+              handle.write("- artifacts: benchmark-result.json, outputs/performance/, docs/assets/figures/benchmarks/\\n")
+          PY
+
       - name: Upload benchmark raw results
         if: always()
         uses: actions/upload-artifact@v7
@@ -209,3 +292,10 @@ jobs:
         with:
           name: benchmark-charts
           path: docs/assets/figures/benchmarks
+
+      - name: Upload benchmark trace
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-trace
+          path: benchmark-trace.json

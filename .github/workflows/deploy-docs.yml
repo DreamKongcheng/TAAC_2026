@@ -72,7 +72,7 @@ jobs:
         uses: actions/cache/restore@v5
         with:
           path: docs/assets/figures/benchmarks
-          key: ${{ runner.os }}-docs-bench-${{ hashFiles('src/taac2026/reporting/benchmark_charts.py', 'src/taac2026/application/reporting/bench_cli.py', 'outputs/performance/**', 'benchmark-result.json') }}
+          key: ${{ runner.os }}-docs-bench-${{ hashFiles('pyproject.toml', 'uv.lock', 'src/taac2026/reporting/benchmark_charts.py', 'src/taac2026/application/reporting/bench_cli.py', 'outputs/performance/**') }}
           restore-keys: |
             ${{ runner.os }}-docs-bench-
 
@@ -87,7 +87,7 @@ jobs:
             echo "needed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Install project dependencies
+      - name: Install project dependencies (lightweight)
         if: steps.generation-check.outputs.needed == 'true'
         run: uv sync --locked --no-install-package torch --no-install-package torchrec --no-install-package fbgemm-gpu
 
@@ -131,10 +131,65 @@ jobs:
       - name: Build Zensical site
         run: uv run --no-project --isolated --with zensical zensical build --clean
 
+      - name: Summarize docs deploy trace
+        env:
+          CACHE_EDA_HIT: ${{ steps.cache-eda-figures.outputs.cache-hit }}
+          CACHE_TIMELINE_HIT: ${{ steps.cache-tech-timeline.outputs.cache-hit }}
+          CACHE_BENCH_HIT: ${{ steps.cache-benchmark-charts.outputs.cache-hit }}
+          GENERATION_NEEDED: ${{ steps.generation-check.outputs.needed }}
+        run: |
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          site_dir = Path("site")
+          trace = {
+              "generation_needed": os.environ["GENERATION_NEEDED"] == "true",
+              "cache_hits": {
+                  "eda": os.environ["CACHE_EDA_HIT"] == "true",
+                  "tech_timeline": os.environ["CACHE_TIMELINE_HIT"] == "true",
+                  "benchmark_charts": os.environ["CACHE_BENCH_HIT"] == "true",
+              },
+              "generated_outputs": {
+                  "eda": os.environ["CACHE_EDA_HIT"] != "true",
+                  "tech_timeline": os.environ["CACHE_TIMELINE_HIT"] != "true",
+                  "benchmark_charts": os.environ["CACHE_BENCH_HIT"] != "true",
+              },
+              "site_file_count": sum(1 for path in site_dir.rglob("*") if path.is_file()),
+              "site_exists": site_dir.exists(),
+          }
+          Path("docs-deploy-trace.json").write_text(json.dumps(trace, indent=2, sort_keys=True), encoding="utf-8")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("## Docs deploy trace\n\n")
+              handle.write(f"- generation needed: {trace['generation_needed']}\\n")
+              handle.write(
+                  "- cache hits: "
+                  f"eda={trace['cache_hits']['eda']}, "
+                  f"tech_timeline={trace['cache_hits']['tech_timeline']}, "
+                  f"benchmark_charts={trace['cache_hits']['benchmark_charts']}\\n"
+              )
+              handle.write(
+                  "- generated this run: "
+                  f"eda={trace['generated_outputs']['eda']}, "
+                  f"tech_timeline={trace['generated_outputs']['tech_timeline']}, "
+                  f"benchmark_charts={trace['generated_outputs']['benchmark_charts']}\\n"
+              )
+              handle.write(f"- built site files: {trace['site_file_count']}\\n")
+          PY
+
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v5
         with:
           path: site
+
+      - name: Upload docs deploy trace
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-deploy-trace
+          path: docs-deploy-trace.json
 
       - name: Deploy GitHub Pages
         id: deployment

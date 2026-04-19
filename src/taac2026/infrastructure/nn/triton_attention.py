@@ -17,6 +17,7 @@ _FP8_DTYPE_MAP = {
     "fp8-e4m3fn": torch.float8_e4m3fn,
     "fp8-e5m2": torch.float8_e5m2,
 }
+_FP8_DTYPES = frozenset(_FP8_DTYPE_MAP.values())
 
 
 @triton.jit
@@ -52,6 +53,7 @@ def _attention_forward_kernel(
     scale,
     HAS_BIAS: tl.constexpr,
     HAS_MASK: tl.constexpr,
+    USE_DOT_FP8: tl.constexpr,
     MODE: tl.constexpr,
     BLOCK_K: tl.constexpr,
     BLOCK_D: tl.constexpr,
@@ -69,7 +71,7 @@ def _attention_forward_kernel(
         query_ptr + batch_head_index * query_bh_stride + query_index * query_seq_stride + dim_offsets * query_dim_stride,
         mask=dim_mask,
         other=0.0,
-    ).to(tl.float32)
+    )
     key_values = tl.load(
         key_ptr
         + batch_head_index * key_bh_stride
@@ -77,8 +79,14 @@ def _attention_forward_kernel(
         + dim_offsets[None, :] * key_dim_stride,
         mask=key_mask[:, None] & dim_mask[None, :],
         other=0.0,
-    ).to(tl.float32)
-    scores = tl.sum(key_values * query_values[None, :], axis=1) * scale
+    )
+    if USE_DOT_FP8:
+        query_matrix = tl.expand_dims(query_values, 0)
+        scores = tl.reshape(tl.dot(query_matrix, tl.trans(key_values), out_dtype=tl.float32), (BLOCK_K,)) * scale
+    else:
+        query_values = query_values.to(tl.float32)
+        key_values = key_values.to(tl.float32)
+        scores = tl.sum(key_values * tl.expand_dims(query_values, 0), axis=1) * scale
 
     if HAS_BIAS:
         bias_values = tl.load(
@@ -117,8 +125,13 @@ def _attention_forward_kernel(
         + dim_offsets[None, :] * value_dim_stride,
         mask=key_mask[:, None] & dim_mask[None, :],
         other=0.0,
-    ).to(tl.float32)
-    output_values = tl.sum(weights[:, None] * value_values, axis=0)
+    )
+    if USE_DOT_FP8:
+        weight_matrix = tl.expand_dims(weights, 0)
+        output_values = tl.reshape(tl.dot(weight_matrix, value_values.to(tl.float32), out_dtype=tl.float32), (BLOCK_D,))
+    else:
+        value_values = value_values.to(tl.float32)
+        output_values = tl.sum(tl.expand_dims(weights, 1) * value_values, axis=0)
     tl.store(
         output_ptr + batch_head_index * output_bh_stride + query_index * output_seq_stride + dim_offsets * output_dim_stride,
         output_values,
@@ -145,6 +158,27 @@ def _apply_attention_precision(tensor: torch.Tensor, precision: AttentionPrecisi
     if resolved_precision == "native":
         return tensor
     return tensor.to(_FP8_DTYPE_MAP[resolved_precision]).to(dtype=tensor.dtype)
+
+
+def _is_fp8_dtype(dtype: torch.dtype) -> bool:
+    return dtype in _FP8_DTYPES
+
+
+def _prepare_attention_tensor(tensor: torch.Tensor, precision: AttentionPrecision) -> torch.Tensor:
+    if precision == "native":
+        return tensor
+    target_dtype = _FP8_DTYPE_MAP[precision]
+    if tensor.dtype == target_dtype:
+        return tensor
+    return tensor.to(dtype=target_dtype)
+
+
+def _resolve_attention_output_dtype(query: torch.Tensor, value: torch.Tensor) -> torch.dtype:
+    if _is_fp8_dtype(query.dtype):
+        if _is_fp8_dtype(value.dtype):
+            return torch.float16
+        return value.dtype
+    return query.dtype
 
 
 def _supports_triton_fp8(device: torch.device) -> bool:
@@ -258,13 +292,35 @@ def _can_use_triton_attention(
         return False
     if query.requires_grad or key.requires_grad or value.requires_grad:
         return False
-    if query.dtype not in {torch.float16, torch.bfloat16, torch.float32}:
+    resolved_precision = _normalize_attention_precision(precision)
+    allowed_dtypes = {torch.float16, torch.bfloat16, torch.float32}
+    if resolved_precision != "native":
+        allowed_dtypes.add(_FP8_DTYPE_MAP[resolved_precision])
+    if query.dtype not in allowed_dtypes or key.dtype not in allowed_dtypes or value.dtype not in allowed_dtypes:
         return False
-    if _normalize_attention_precision(precision) != "native" and not _supports_triton_fp8(query.device):
+    if resolved_precision != "native" and not _supports_triton_fp8(query.device):
         return False
     if key.shape[-2] > 256 or query.shape[-2] > 256 or query.shape[-1] > 128:
         return False
     return True
+
+
+def _attention_block_sizes(
+    *,
+    query_length: int,
+    key_length: int,
+    head_dim: int,
+    precision: AttentionPrecision | str,
+) -> tuple[int, int]:
+    resolved_precision = _normalize_attention_precision(precision)
+    min_head_dim = 32 if resolved_precision != "native" else 16
+    block_k = min(256, triton.next_power_of_2(max(16, key_length)))
+    block_d = min(128, triton.next_power_of_2(max(min_head_dim, head_dim)))
+    if block_k < key_length:
+        raise ValueError(f"key_length {key_length} exceeds supported BLOCK_K {block_k}")
+    if block_d < head_dim:
+        raise ValueError(f"head_dim {head_dim} exceeds supported BLOCK_D {block_d}")
+    return block_k, block_d
 
 
 def triton_attention(
@@ -317,16 +373,10 @@ def triton_attention(
             precision=resolved_precision,
         )
 
-    output_dtype = query.dtype
-    if resolved_precision == "native":
-        query_for_kernel = query
-        key_for_kernel = key
-        value_for_kernel = value
-    else:
-        target_dtype = _FP8_DTYPE_MAP[resolved_precision]
-        query_for_kernel = query.to(dtype=target_dtype)
-        key_for_kernel = key.to(dtype=target_dtype)
-        value_for_kernel = value.to(dtype=target_dtype)
+    output_dtype = _resolve_attention_output_dtype(query, value)
+    query_for_kernel = _prepare_attention_tensor(query, resolved_precision)
+    key_for_kernel = _prepare_attention_tensor(key, resolved_precision)
+    value_for_kernel = _prepare_attention_tensor(value, resolved_precision)
 
     flattened_query = query_for_kernel.contiguous().view(batch_size * num_heads, query_length, head_dim)
     flattened_key = key_for_kernel.contiguous().view(batch_size * num_heads, key_length, head_dim)
@@ -351,8 +401,12 @@ def triton_attention(
         combined_mask = combined_mask.to(device=query.device, dtype=torch.int32).contiguous()
         has_mask = True
 
-    block_k = min(256, triton.next_power_of_2(key_length))
-    block_d = min(128, triton.next_power_of_2(head_dim))
+    block_k, block_d = _attention_block_sizes(
+        query_length=query_length,
+        key_length=key_length,
+        head_dim=head_dim,
+        precision=resolved_precision,
+    )
     _attention_forward_kernel[(batch_size * num_heads, query_length)](
         flattened_query,
         flattened_key,
@@ -385,6 +439,7 @@ def triton_attention(
         1.0 / math.sqrt(head_dim),
         HAS_BIAS=has_bias,
         HAS_MASK=has_mask,
+        USE_DOT_FP8=resolved_precision != "native",
         MODE=0 if resolved_mode == "softmax" else 1,
         BLOCK_K=block_k,
         BLOCK_D=block_d,

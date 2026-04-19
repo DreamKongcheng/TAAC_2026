@@ -84,6 +84,26 @@ def test_triton_attention_fp8_matches_reference() -> None:
 
 
 @pytest.mark.skipif(not _supports_fp8_cuda(), reason="Hopper-or-newer CUDA GPU is required for Triton fp8 kernel tests")
+def test_triton_attention_prequantized_fp8_matches_reference() -> None:
+    query = torch.randn(2, 2, 8, 16, device="cuda", dtype=torch.float16)
+    key = torch.randn(2, 2, 8, 16, device="cuda", dtype=torch.float16)
+    value = torch.randn(2, 2, 8, 16, device="cuda", dtype=torch.float16)
+
+    with torch.no_grad():
+        expected = reference_attention(query, key, value, precision="fp8-e4m3fn")
+        actual = triton_attention(
+            query.to(torch.float8_e4m3fn),
+            key.to(torch.float8_e4m3fn),
+            value.to(torch.float8_e4m3fn),
+            backend="triton",
+            precision="fp8-e4m3fn",
+        )
+
+    assert actual.dtype == torch.float16
+    assert torch.allclose(actual, expected, atol=2.0e-3, rtol=2.0e-3)
+
+
+@pytest.mark.skipif(not _supports_fp8_cuda(), reason="Hopper-or-newer CUDA GPU is required for Triton fp8 kernel tests")
 def test_triton_ffn_fp8_matches_reference() -> None:
     projected = torch.randn(4, 12, 32, device="cuda", dtype=torch.float32)
 
@@ -91,4 +111,21 @@ def test_triton_ffn_fp8_matches_reference() -> None:
         expected = reference_ffn_activation(projected, "silu", precision="fp8-e4m3fn")
         actual = triton_ffn_activation(projected, "silu", backend="triton", precision="fp8-e4m3fn")
 
+    assert torch.allclose(actual, expected, atol=2.0e-3, rtol=2.0e-3)
+
+
+@pytest.mark.skipif(not _supports_fp8_cuda(), reason="Hopper-or-newer CUDA GPU is required for Triton fp8 kernel tests")
+def test_triton_ffn_prequantized_fp8_matches_reference() -> None:
+    projected = torch.randn(4, 12, 32, device="cuda", dtype=torch.float16)
+
+    with torch.no_grad():
+        expected = reference_ffn_activation(projected, "silu", precision="fp8-e4m3fn")
+        actual = triton_ffn_activation(
+            projected.to(torch.float8_e4m3fn),
+            "silu",
+            backend="triton",
+            precision="fp8-e4m3fn",
+        )
+
+    assert actual.dtype == torch.float16
     assert torch.allclose(actual, expected, atol=2.0e-3, rtol=2.0e-3)

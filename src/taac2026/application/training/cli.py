@@ -5,7 +5,6 @@ import sys
 
 from ...infrastructure.experiments.loader import load_experiment_package
 from ...infrastructure.io.console import configure_logging, print_summary_table
-from .service import run_training
 
 
 def parse_train_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -21,6 +20,8 @@ def parse_train_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from .service import run_training
+
     configure_logging()
     args = parse_train_args(argv)
     experiment = load_experiment_package(args.experiment)

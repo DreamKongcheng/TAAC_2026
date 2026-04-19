@@ -16,6 +16,7 @@ _FP8_DTYPE_MAP = {
     "fp8-e4m3fn": torch.float8_e4m3fn,
     "fp8-e5m2": torch.float8_e5m2,
 }
+_FP8_DTYPES = frozenset(_FP8_DTYPE_MAP.values())
 
 
 @triton.jit
@@ -71,6 +72,25 @@ def _apply_precision(projected: torch.Tensor, precision: FeedForwardPrecision | 
     return projected.to(_FP8_DTYPE_MAP[resolved_precision]).to(dtype=projected.dtype)
 
 
+def _is_fp8_dtype(dtype: torch.dtype) -> bool:
+    return dtype in _FP8_DTYPES
+
+
+def _prepare_projected_tensor(projected: torch.Tensor, precision: FeedForwardPrecision) -> torch.Tensor:
+    if precision == "native":
+        return projected
+    target_dtype = _FP8_DTYPE_MAP[precision]
+    if projected.dtype == target_dtype:
+        return projected
+    return projected.to(dtype=target_dtype)
+
+
+def _resolve_activation_output_dtype(projected: torch.Tensor) -> torch.dtype:
+    if _is_fp8_dtype(projected.dtype):
+        return torch.float16
+    return projected.dtype
+
+
 def _supports_triton_fp8(device: torch.device) -> bool:
     if device.type != "cuda":
         return False
@@ -88,9 +108,13 @@ def _can_use_triton_activation(
         return False
     if tensor.device.type != "cuda" or tensor.requires_grad:
         return False
-    if _normalize_precision_name(precision) != "native" and not _supports_triton_fp8(tensor.device):
+    resolved_precision = _normalize_precision_name(precision)
+    if resolved_precision != "native" and not _supports_triton_fp8(tensor.device):
         return False
-    return tensor.dtype in {torch.float16, torch.bfloat16, torch.float32}
+    allowed_dtypes = {torch.float16, torch.bfloat16, torch.float32}
+    if resolved_precision != "native":
+        allowed_dtypes.add(_FP8_DTYPE_MAP[resolved_precision])
+    return tensor.dtype in allowed_dtypes
 
 
 def reference_ffn_activation(
@@ -124,22 +148,19 @@ def triton_ffn_activation(
     if not _can_use_triton_activation(projected, backend, resolved_precision):
         return reference_ffn_activation(projected, resolved, precision=resolved_precision)
 
-    original_dtype = projected.dtype
-    if resolved_precision == "native":
-        projected_for_kernel = projected
-    else:
-        projected_for_kernel = projected.to(dtype=_FP8_DTYPE_MAP[resolved_precision])
+    output_dtype = _resolve_activation_output_dtype(projected)
+    projected_for_kernel = _prepare_projected_tensor(projected, resolved_precision)
 
     if resolved == "swiglu":
         hidden_dim = projected_for_kernel.shape[-1] // 2
         flattened_input = projected_for_kernel.contiguous().view(-1, hidden_dim * 2)
-        output = torch.empty(flattened_input.shape[0] * hidden_dim, device=projected.device, dtype=original_dtype)
+        output = torch.empty(flattened_input.shape[0] * hidden_dim, device=projected.device, dtype=output_dtype)
         total_elements = output.numel()
         mode = 2
     else:
         hidden_dim = projected_for_kernel.shape[-1]
         flattened_input = projected_for_kernel.contiguous().view(-1)
-        output = torch.empty(flattened_input.shape[0], device=projected.device, dtype=original_dtype)
+        output = torch.empty(flattened_input.shape[0], device=projected.device, dtype=output_dtype)
         total_elements = output.numel()
         mode = 0 if resolved == "gelu" else 1
 
