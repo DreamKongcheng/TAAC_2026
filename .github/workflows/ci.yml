@@ -47,13 +47,6 @@ jobs:
         with:
           enable-cache: true
 
-        - name: Restore benchmark charts cache
-          id: cache-benchmark-charts
-          uses: actions/cache/restore@v5
-          with:
-            path: docs/assets/figures/benchmarks
-            key: ${{ runner.os }}-docs-bench-${{ github.sha }}
-
       - name: Sync project environment
         run: uv sync --locked
 
@@ -216,6 +209,13 @@ jobs:
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
           enable-cache: true
+
+      - name: Restore benchmark charts cache
+        id: cache-benchmark-charts
+        uses: actions/cache/restore@v5
+        with:
+          path: docs/assets/figures/benchmarks
+          key: ${{ runner.os }}-docs-bench-${{ github.sha }}
 
       - name: Sync project environment
         run: uv sync --locked
