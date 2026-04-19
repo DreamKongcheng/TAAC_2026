@@ -8,6 +8,7 @@ from ...domain.experiment import ExperimentSpec
 from ...domain.metrics import compute_classification_metrics, safe_mean
 from ...infrastructure.io.console import create_progress_bar, logger
 from ...infrastructure.io.files import ensure_dir, replace_file, write_json
+from ...infrastructure.nn.defaults import resolve_experiment_builders
 from .artifacts import write_training_curve_artifacts
 from .external_profilers import (
     build_training_external_profiler_plan,
@@ -48,7 +49,8 @@ def run_training(
         experiment.train.batch_size,
     )
 
-    train_loader, val_loader, data_stats = experiment.build_data_pipeline(
+    builders = resolve_experiment_builders(experiment)
+    train_loader, val_loader, data_stats = builders.build_data_pipeline(
         experiment.data,
         experiment.model,
         experiment.train,
@@ -57,14 +59,14 @@ def run_training(
     model = model.to(device)
     runtime_execution = prepare_runtime_execution(model, experiment.train, device)
     execution_model = runtime_execution.execution_model
-    loss_fn, auxiliary_loss = experiment.build_loss_stack(
+    loss_fn, auxiliary_loss = builders.build_loss_stack(
         experiment.data,
         experiment.model,
         experiment.train,
         data_stats,
         device,
     )
-    optimizer = experiment.build_optimizer_component(model, experiment.train)
+    optimizer = builders.build_optimizer_component(model, experiment.train)
     model_profile = collect_model_profile(model, val_loader, device, runtime_execution=runtime_execution)
     logger.info(
         "runtime optimization: compile_active={} amp_active={} amp_dtype={}",
@@ -98,18 +100,12 @@ def run_training(
                     loss = loss_fn(logits, batch.labels)
                 if getattr(auxiliary_loss, "enabled", False) and getattr(auxiliary_loss, "requires_aux", False):
                     raise RuntimeError("Auxiliary losses requiring extra tensors are not implemented")
-                if runtime_execution.gradient_scaler is not None:
-                    runtime_execution.gradient_scaler.scale(loss).backward()
-                    if experiment.train.grad_clip_norm and experiment.train.grad_clip_norm > 0:
-                        runtime_execution.gradient_scaler.unscale_(optimizer)
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), experiment.train.grad_clip_norm)
-                    runtime_execution.gradient_scaler.step(optimizer)
-                    runtime_execution.gradient_scaler.update()
-                else:
-                    loss.backward()
-                    if experiment.train.grad_clip_norm and experiment.train.grad_clip_norm > 0:
-                        torch.nn.utils.clip_grad_norm_(model.parameters(), experiment.train.grad_clip_norm)
-                    optimizer.step()
+                runtime_execution.backward_and_step(
+                    loss,
+                    optimizer,
+                    model_parameters=model.parameters(),
+                    grad_clip_norm=experiment.train.grad_clip_norm,
+                )
                 batch_losses.append(float(loss.detach().cpu().item()))
 
             train_loss = safe_mean(batch_losses)

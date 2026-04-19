@@ -440,6 +440,8 @@ def collect_compute_profile(
     latency: dict[str, Any] | None = None,
     runtime_execution: RuntimeExecution | None = None,
 ) -> dict[str, float | int | str]:
+    from ...infrastructure.nn.defaults import resolve_experiment_builders
+
     device = torch.device(device)
     train_batches_per_epoch = _loader_num_batches(train_loader)
     val_batches_per_epoch = _loader_num_batches(val_loader)
@@ -478,7 +480,10 @@ def collect_compute_profile(
         profile_model = profile_model.to(device)
         profile_runtime = prepare_runtime_execution(profile_model, experiment.train, device)
         profile_execution_model = profile_runtime.execution_model
-        profile_optimizer = experiment.build_optimizer_component(profile_model, experiment.train)
+        profile_optimizer = resolve_experiment_builders(experiment).build_optimizer_component(
+            profile_model,
+            experiment.train,
+        )
         profile_execution_model.train()
 
         if device.type == "cuda":
@@ -494,18 +499,12 @@ def collect_compute_profile(
             with profile_runtime.autocast_context():
                 logits = profile_execution_model(train_profile_batch)
                 loss = loss_fn(logits, train_profile_batch.labels)
-            if profile_runtime.gradient_scaler is not None:
-                profile_runtime.gradient_scaler.scale(loss).backward()
-                if experiment.train.grad_clip_norm and experiment.train.grad_clip_norm > 0:
-                    profile_runtime.gradient_scaler.unscale_(profile_optimizer)
-                    torch.nn.utils.clip_grad_norm_(profile_model.parameters(), experiment.train.grad_clip_norm)
-                profile_runtime.gradient_scaler.step(profile_optimizer)
-                profile_runtime.gradient_scaler.update()
-            else:
-                loss.backward()
-                if experiment.train.grad_clip_norm and experiment.train.grad_clip_norm > 0:
-                    torch.nn.utils.clip_grad_norm_(profile_model.parameters(), experiment.train.grad_clip_norm)
-                profile_optimizer.step()
+            profile_runtime.backward_and_step(
+                loss,
+                profile_optimizer,
+                model_parameters=profile_model.parameters(),
+                grad_clip_norm=experiment.train.grad_clip_norm,
+            )
         if device.type == "cuda":
             torch.cuda.synchronize(device)
         train_step_wall_time_ms = (time.perf_counter() - start) * 1000.0

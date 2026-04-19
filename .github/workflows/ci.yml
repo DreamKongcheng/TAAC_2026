@@ -30,7 +30,7 @@ concurrency:
 
 jobs:
   test:
-    name: Unit, Integration, and Coverage
+    name: CPU Unit & Integration
     runs-on: ubuntu-latest
 
     steps:
@@ -54,10 +54,126 @@ jobs:
         run: uv run python scripts/lint_torch.py
 
       - name: Run unit tests with coverage
-        run: uv run --with coverage coverage run -m pytest -m unit -v
+        run: uv run --with coverage coverage run --data-file=.coverage.cpu -m pytest -m unit -v
 
-      - name: Run integration tests with coverage
-        run: uv run --with coverage coverage run --append -m pytest -m integration -v
+      - name: Summarize CPU test routing
+        run: |
+          uv run python - <<'PY'
+          import os
+          from tests import conftest
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("## CPU test routing\n\n")
+              handle.write(f"- executed on ubuntu-latest: unit ({len(conftest.UNIT_TEST_FILES)} files)\\n")
+              handle.write(f"- delegated to GPU runner: integration ({len(conftest.INTEGRATION_TEST_FILES)} files), gpu ({len(conftest.GPU_TEST_FILES)} files)\\n")
+              handle.write("- reason: the repository pins CUDA-linked TorchRec/fbgemm wheels, so stack-level imports require libcuda.so.1 even for CPU assertions.\\n")
+          PY
+
+      - name: Upload CPU coverage data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-cpu-data
+          path: .coverage.cpu
+
+  gpu-test:
+    name: GPU Integration & Triton Kernels
+    runs-on: [self-hosted, gpu, linux]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Sync project environment
+        run: uv sync --locked
+
+      - name: Capture GPU runtime evidence
+        run: uv run python scripts/verify_gpu_env.py --json > gpu-env-report.json
+
+      - name: Run integration and GPU tests with coverage
+        run: uv run --with coverage coverage run --data-file=.coverage.gpu -m pytest -m "integration or gpu" -v
+
+      - name: Summarize GPU evidence
+        run: |
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from tests import conftest
+
+          report = json.loads(Path("gpu-env-report.json").read_text(encoding="utf-8"))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("## GPU runtime evidence\n\n")
+              handle.write("- verifier: scripts/verify_gpu_env.py --json (same probe used by .devcontainer/post-create.sh)\\n")
+              handle.write(f"- device: {report['device']}\\n")
+              handle.write(f"- torch / torchrec / fbgemm / triton: {report['torch']} / {report['torchrec']} / {report['fbgemm_gpu']} / {report['triton']}\\n")
+              handle.write(f"- executed markers: integration ({len(conftest.INTEGRATION_TEST_FILES)} files) + gpu ({len(conftest.GPU_TEST_FILES)} files)\\n")
+              handle.write(f"- embedding probe: {report['embedding_probe']}\\n")
+          PY
+
+      - name: Upload GPU coverage data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-gpu-data
+          path: .coverage.gpu
+
+      - name: Upload GPU runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gpu-runtime-evidence
+          path: gpu-env-report.json
+
+  coverage:
+    name: Coverage Report
+    runs-on: ubuntu-latest
+    needs:
+      - test
+      - gpu-test
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Download CPU coverage data
+        uses: actions/download-artifact@v5
+        with:
+          name: coverage-cpu-data
+          path: .coverage-artifacts/cpu
+
+      - name: Download GPU coverage data
+        uses: actions/download-artifact@v5
+        with:
+          name: coverage-gpu-data
+          path: .coverage-artifacts/gpu
+
+      - name: Combine coverage data
+        run: |
+          cp .coverage-artifacts/cpu/.coverage.cpu .
+          cp .coverage-artifacts/gpu/.coverage.gpu .
+          uv run --with coverage coverage combine .coverage.cpu .coverage.gpu
 
       - name: Enforce coverage gate
         run: uv run --with coverage coverage report
@@ -72,3 +188,128 @@ jobs:
         with:
           name: coverage-xml
           path: coverage.xml
+
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: [self-hosted, gpu, linux]
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Restore benchmark charts cache
+        id: cache-benchmark-charts
+        uses: actions/cache/restore@v5
+        with:
+          path: docs/assets/figures/benchmarks
+          key: ${{ runner.os }}-docs-bench-${{ github.sha }}
+
+      - name: Sync project environment
+        run: uv sync --locked
+
+      - name: Run benchmark suite
+        run: |
+          rm -rf .benchmarks outputs/performance benchmark-result.json
+          uv run pytest tests/benchmarks -o python_files='bench_*.py' --benchmark-json=benchmark-result.json -v
+
+      - name: Store benchmark result
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: pytest
+          output-file-path: benchmark-result.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: "115%"
+          comment-on-alert: true
+          fail-on-alert: true
+
+      - name: Generate benchmark charts
+        run: uv run taac-bench-report --input benchmark-result.json
+
+      - name: Save benchmark charts cache
+        if: steps.cache-benchmark-charts.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: docs/assets/figures/benchmarks
+          key: ${{ runner.os }}-docs-bench-${{ github.sha }}
+
+      - name: Summarize benchmark evidence
+        env:
+          BENCHMARK_STORE_ENABLED: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          performance_dir = Path("outputs/performance")
+          embedding_base = json.loads((performance_dir / "embedding_lookup.json").read_text(encoding="utf-8"))
+          embedding_torchrec = json.loads((performance_dir / "embedding_lookup_torchrec.json").read_text(encoding="utf-8"))
+          attention_base = json.loads((performance_dir / "attention_forward.json").read_text(encoding="utf-8"))
+          attention_triton = json.loads((performance_dir / "attention_forward_triton.json").read_text(encoding="utf-8"))
+
+          embedding_speedup = embedding_torchrec["throughput"] / embedding_base["throughput"]
+          attention_latency_ratio = attention_triton["median_ms"] / attention_base["median_ms"]
+          trace = {
+              "store_result_enabled": os.environ["BENCHMARK_STORE_ENABLED"].lower() == "true",
+              "alert_threshold_percent": 115,
+              "comment_on_alert": True,
+              "fail_on_alert": True,
+              "embedding_throughput_speedup": embedding_speedup,
+              "attention_latency_ratio": attention_latency_ratio,
+              "artifacts": [
+                  "benchmark-result.json",
+                  "outputs/performance",
+                  "docs/assets/figures/benchmarks",
+              ],
+          }
+          Path("benchmark-trace.json").write_text(json.dumps(trace, indent=2, sort_keys=True), encoding="utf-8")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("## Benchmark evidence\n\n")
+              handle.write(f"- store benchmark history: {trace['store_result_enabled']} (alert threshold 115%, comment-on-alert=true, fail-on-alert=true)\\n")
+              handle.write(
+                  f"- embedding throughput: {embedding_base['throughput']:.2f} -> {embedding_torchrec['throughput']:.2f} lookups/s ({embedding_speedup:.2f}x)\\n"
+              )
+              handle.write(
+                  f"- attention median latency: {attention_base['median_ms']:.4f} ms -> {attention_triton['median_ms']:.4f} ms ({attention_latency_ratio:.3f}x baseline)\\n"
+              )
+              handle.write("- artifacts: benchmark-result.json, outputs/performance/, docs/assets/figures/benchmarks/\\n")
+          PY
+
+      - name: Upload benchmark raw results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-raw-results
+          path: |
+            benchmark-result.json
+            outputs/performance
+
+      - name: Upload benchmark charts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-charts
+          path: docs/assets/figures/benchmarks
+
+      - name: Upload benchmark trace
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-trace
+          path: benchmark-trace.json

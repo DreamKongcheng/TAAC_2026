@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -42,3 +43,26 @@ def test_collection_rejects_unclassified_files(monkeypatch: pytest.MonkeyPatch) 
 
     with pytest.raises(pytest.UsageError, match="test_unknown.py"):
         tests_conftest.pytest_collection_modifyitems(object(), [_FakeItem("test_unknown.py")])
+
+
+class _FakeConfig:
+    def __init__(self, markexpr: str) -> None:
+        self.option = SimpleNamespace(markexpr=markexpr)
+
+
+def test_requested_collection_phases_parses_simple_marker_expressions() -> None:
+    assert tests_conftest._requested_collection_phases(_FakeConfig("unit")) == {"unit"}
+    assert tests_conftest._requested_collection_phases(_FakeConfig("integration or gpu")) == {"integration", "gpu"}
+    assert tests_conftest._requested_collection_phases(_FakeConfig("unit and integration")) is None
+
+
+def test_ignore_collect_skips_files_outside_requested_phase(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tests_conftest, "UNIT_TEST_FILES", {"test_unit.py"})
+    monkeypatch.setattr(tests_conftest, "INTEGRATION_TEST_FILES", {"test_integration.py"})
+    monkeypatch.setattr(tests_conftest, "GPU_TEST_FILES", {"test_gpu.py"})
+
+    config = _FakeConfig("unit")
+
+    assert tests_conftest.pytest_ignore_collect(Path("tests/test_unit.py"), config) is False
+    assert tests_conftest.pytest_ignore_collect(Path("tests/test_integration.py"), config) is True
+    assert tests_conftest.pytest_ignore_collect(Path("tests/test_gpu.py"), config) is True

@@ -46,18 +46,18 @@ def test_load_base_points_falls_back_to_experiments_doc(tmp_path: Path) -> None:
             ),
         )
 
-    experiments_doc = tmp_path / "docs" / "experiments.md"
+    experiments_doc = tmp_path / "docs" / "experiments" / "index.md"
     experiments_doc.parent.mkdir(parents=True, exist_ok=True)
     experiments_doc.write_text(
         "\n".join(
             [
-                "# Experiments",
+                "# 实验包总览",
                 "",
-                "## 当前可复核 smoke 结果",
+                "## 性能快照",
                 "",
                 "| 实验包 | 目录 | 模型 | AUC | PR AUC | Brier | Logloss | 延迟 | 约束 | TFLOPs | 模型大小(MB) |",
                 "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-                "| Baseline | config/gen/baseline | baseline | 0.812 | 0.000 | 0.000 | 0.000 | 0.000 | yes | 2.5 | 24.0 |",
+                "| Baseline | config/baseline | baseline | 0.812 | 0.000 | 0.000 | 0.000 | 0.000 | yes | 2.5 | 24.0 |",
             ]
         ),
         encoding="utf-8",
@@ -84,7 +84,7 @@ def test_plot_model_performance_merges_search_trials_and_writes_outputs(tmp_path
             ),
         )
 
-    search_root = tmp_path / "outputs" / "gen"
+    search_root = tmp_path / "outputs" / "config"
     _write_json(
         search_root / "baseline_optuna" / "trial_0000" / "summary.json",
         _summary_payload(
@@ -95,7 +95,7 @@ def test_plot_model_performance_merges_search_trials_and_writes_outputs(tmp_path
         ),
     )
 
-    experiments_doc = tmp_path / "docs" / "experiments.md"
+    experiments_doc = tmp_path / "docs" / "experiments" / "index.md"
     base_points = load_base_points(summary_root, experiments_doc)
     search_series = load_search_series(search_root)
     merged_points = merge_best_search_points(base_points, search_series)
@@ -120,8 +120,8 @@ def test_plot_model_performance_merges_search_trials_and_writes_outputs(tmp_path
 
 def test_reporting_cli_main_uses_metric_specific_defaults(tmp_path: Path, monkeypatch) -> None:
     summary_root = tmp_path / "outputs" / "smoke"
-    search_root = tmp_path / "outputs" / "gen"
-    experiments_doc = tmp_path / "docs" / "experiments.md"
+    search_root = tmp_path / "outputs" / "config"
+    experiments_doc = tmp_path / "docs" / "experiments" / "index.md"
     output_path = tmp_path / "figures" / "model_performance_vs_compute.png"
     captured: dict[str, object] = {}
 
@@ -148,3 +148,23 @@ def test_reporting_cli_main_uses_metric_specific_defaults(tmp_path: Path, monkey
         "output_path": output_path,
         "x_metric": "compute",
     }
+
+
+def test_load_base_points_uses_available_summaries_when_docs_snapshot_is_absent(tmp_path: Path) -> None:
+    summary_root = tmp_path / "outputs" / "smoke"
+    experiments_doc = tmp_path / "docs" / "experiments" / "index.md"
+    _write_json(
+        summary_root / "baseline" / "summary.json",
+        _summary_payload(
+            auc=0.701,
+            parameter_size_mb=12.0,
+            total_parameters=3_000_000,
+            total_tflops=1.2,
+        ),
+    )
+
+    points = load_base_points(summary_root, experiments_doc)
+
+    assert len(points) == 1
+    assert points[0].slug == "baseline"
+    assert points[0].source == "summary"

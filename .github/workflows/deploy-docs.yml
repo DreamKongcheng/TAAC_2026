@@ -8,8 +8,13 @@ on:
       - ".github/workflows/deploy-docs.yml"
       - "docs/**"
       - "zensical.toml"
-      - "src/taac2026/reporting/**"
-      - "src/taac2026/application/reporting/**"
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -22,7 +27,37 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  classify-push:
+    name: Classify Push Trigger
+    runs-on: ubuntu-latest
+    outputs:
+      allow_push_deploy: ${{ steps.classify.outputs.allow_push_deploy }}
+
+    steps:
+      - name: Checkout repository
+        if: github.event_name == 'push'
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Classify push changes
+        id: classify
+        run: |
+          allow_push_deploy=true
+          if [[ "${{ github.event_name }}" == "push" ]]; then
+            changed_files="$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}")"
+            if echo "$changed_files" | grep -Eq '^(\.github/workflows/ci\.yml|config/|src/|tests/|pyproject\.toml$|uv\.lock$)'; then
+              allow_push_deploy=false
+            fi
+          fi
+          echo "allow_push_deploy=$allow_push_deploy" >> "$GITHUB_OUTPUT"
+
   deploy:
+    needs:
+      - classify-push
+    if: |
+      (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') ||
+      (github.event_name != 'workflow_run' && needs.classify-push.outputs.allow_push_deploy == 'true')
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
@@ -38,6 +73,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           lfs: true
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -49,26 +85,12 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Install project dependencies
-        run: uv sync --locked
-
       - name: Restore EDA figures cache
         id: cache-eda-figures
         uses: actions/cache/restore@v5
         with:
           path: docs/assets/figures/eda
           key: ${{ runner.os }}-docs-eda-${{ hashFiles('pyproject.toml', 'uv.lock', 'src/taac2026/application/reporting/eda_cli.py', 'src/taac2026/domain/metrics.py', 'src/taac2026/infrastructure/io/datasets.py', 'src/taac2026/reporting/dataset_eda.py') }}
-
-      - name: Generate EDA figures
-        if: steps.cache-eda-figures.outputs.cache-hit != 'true'
-        run: uv run taac-dataset-eda
-
-      - name: Save EDA figures cache
-        if: steps.cache-eda-figures.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v5
-        with:
-          path: docs/assets/figures/eda
-          key: ${{ steps.cache-eda-figures.outputs.cache-primary-key }}
 
       - name: Restore tech timeline cache
         id: cache-tech-timeline
@@ -80,6 +102,76 @@ jobs:
           key: ${{ runner.os }}-docs-tech-timeline-${{ hashFiles('pyproject.toml', 'uv.lock', 'src/taac2026/application/reporting/timeline_cli.py', 'src/taac2026/reporting/tech_timeline.py') }}
           restore-keys: |
             ${{ runner.os }}-docs-tech-timeline-
+
+      - name: Restore benchmark charts cache
+        if: github.event_name != 'push'
+        id: cache-benchmark-charts-exact
+        uses: actions/cache/restore@v5
+        with:
+          path: docs/assets/figures/benchmarks
+          key: ${{ runner.os }}-docs-bench-${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Restore benchmark charts cache (docs-only fallback)
+        if: github.event_name == 'push'
+        id: cache-benchmark-charts-push
+        uses: actions/cache/restore@v5
+        with:
+          path: docs/assets/figures/benchmarks
+          key: ${{ runner.os }}-docs-bench-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-docs-bench-
+
+      - name: Resolve benchmark charts cache status
+        id: benchmark-cache-status
+        env:
+          EXACT_CACHE_HIT: ${{ steps.cache-benchmark-charts-exact.outputs.cache-hit }}
+          EXACT_CACHE_MATCHED_KEY: ${{ steps.cache-benchmark-charts-exact.outputs.cache-matched-key }}
+          PUSH_CACHE_HIT: ${{ steps.cache-benchmark-charts-push.outputs.cache-hit }}
+          PUSH_CACHE_MATCHED_KEY: ${{ steps.cache-benchmark-charts-push.outputs.cache-matched-key }}
+        run: |
+          cache_hit="$EXACT_CACHE_HIT"
+          cache_matched_key="$EXACT_CACHE_MATCHED_KEY"
+          if [[ -z "$cache_hit" ]]; then
+            cache_hit="$PUSH_CACHE_HIT"
+            cache_matched_key="$PUSH_CACHE_MATCHED_KEY"
+          fi
+
+          benchmark_charts_ready=false
+          if [[ "$cache_hit" == "true" ]]; then
+            benchmark_charts_ready=true
+          elif [[ "${{ github.event_name }}" == "push" && -n "$cache_matched_key" ]]; then
+            benchmark_charts_ready=true
+          fi
+
+          echo "cache_hit=$cache_hit" >> "$GITHUB_OUTPUT"
+          echo "cache_matched_key=$cache_matched_key" >> "$GITHUB_OUTPUT"
+          echo "benchmark_charts_ready=$benchmark_charts_ready" >> "$GITHUB_OUTPUT"
+
+      - name: Check if artifact generation is needed
+        id: generation-check
+        run: |
+          if [[ "${{ steps.cache-eda-figures.outputs.cache-hit }}" != "true" ]] || \
+             [[ "${{ steps.cache-tech-timeline.outputs.cache-hit }}" != "true" ]] || \
+             [[ "${{ steps.benchmark-cache-status.outputs.benchmark_charts_ready }}" != "true" ]]; then
+            echo "needed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install project dependencies (lightweight)
+        if: steps.generation-check.outputs.needed == 'true'
+        run: uv sync --locked --no-install-package torch --no-install-package torchrec --no-install-package fbgemm-gpu
+
+      - name: Generate EDA figures
+        if: steps.cache-eda-figures.outputs.cache-hit != 'true'
+        run: uv run taac-dataset-eda
+
+      - name: Save EDA figures cache
+        if: steps.cache-eda-figures.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: docs/assets/figures/eda
+          key: ${{ steps.cache-eda-figures.outputs.cache-primary-key }}
 
       - name: Generate tech timeline
         if: steps.cache-tech-timeline.outputs.cache-hit != 'true'
@@ -96,13 +188,88 @@ jobs:
             docs/assets/figures/papers/tech-timeline.echarts.json
           key: ${{ steps.cache-tech-timeline.outputs.cache-primary-key }}
 
+      - name: Generate benchmark charts
+        if: steps.benchmark-cache-status.outputs.benchmark_charts_ready != 'true'
+        run: uv run taac-bench-report --fail-on-empty
+
+      - name: Save benchmark charts cache
+        if: steps.benchmark-cache-status.outputs.benchmark_charts_ready != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: docs/assets/figures/benchmarks
+          key: ${{ runner.os }}-docs-bench-${{ github.event.workflow_run.head_sha || github.sha }}
+
       - name: Build Zensical site
         run: uv run --no-project --isolated --with zensical zensical build --clean
+
+      - name: Summarize docs deploy trace
+        env:
+          CACHE_EDA_HIT: ${{ steps.cache-eda-figures.outputs.cache-hit }}
+          CACHE_TIMELINE_HIT: ${{ steps.cache-tech-timeline.outputs.cache-hit }}
+          CACHE_BENCH_HIT: ${{ steps.benchmark-cache-status.outputs.cache_hit }}
+          CACHE_BENCH_MATCHED_KEY: ${{ steps.benchmark-cache-status.outputs.cache_matched_key }}
+          CACHE_BENCH_READY: ${{ steps.benchmark-cache-status.outputs.benchmark_charts_ready }}
+          GENERATION_NEEDED: ${{ steps.generation-check.outputs.needed }}
+        run: |
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          site_dir = Path("site")
+          trace = {
+              "generation_needed": os.environ["GENERATION_NEEDED"] == "true",
+              "cache_hits": {
+                  "eda": os.environ["CACHE_EDA_HIT"] == "true",
+                  "tech_timeline": os.environ["CACHE_TIMELINE_HIT"] == "true",
+                  "benchmark_charts": os.environ["CACHE_BENCH_HIT"] == "true",
+              },
+              "cache_fallbacks": {
+                  "benchmark_charts": os.environ["CACHE_BENCH_READY"] == "true"
+                  and os.environ["CACHE_BENCH_HIT"] != "true",
+              },
+              "generated_outputs": {
+                  "eda": os.environ["CACHE_EDA_HIT"] != "true",
+                  "tech_timeline": os.environ["CACHE_TIMELINE_HIT"] != "true",
+                  "benchmark_charts": os.environ["CACHE_BENCH_READY"] != "true",
+              },
+              "site_file_count": sum(1 for path in site_dir.rglob("*") if path.is_file()),
+              "site_exists": site_dir.exists(),
+          }
+          Path("docs-deploy-trace.json").write_text(json.dumps(trace, indent=2, sort_keys=True), encoding="utf-8")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("## Docs deploy trace\n\n")
+              handle.write(f"- generation needed: {trace['generation_needed']}\\n")
+              handle.write(
+                  "- cache hits: "
+                  f"eda={trace['cache_hits']['eda']}, "
+                  f"tech_timeline={trace['cache_hits']['tech_timeline']}, "
+                  f"benchmark_charts={trace['cache_hits']['benchmark_charts']}\\n"
+              )
+              handle.write(
+                  f"- benchmark fallback cache reused: {trace['cache_fallbacks']['benchmark_charts']}\\n"
+              )
+              handle.write(
+                  "- generated this run: "
+                  f"eda={trace['generated_outputs']['eda']}, "
+                  f"tech_timeline={trace['generated_outputs']['tech_timeline']}, "
+                  f"benchmark_charts={trace['generated_outputs']['benchmark_charts']}\\n"
+              )
+              handle.write(f"- built site files: {trace['site_file_count']}\\n")
+          PY
 
       - name: Upload site artifact
         uses: actions/upload-pages-artifact@v5
         with:
           path: site
+
+      - name: Upload docs deploy trace
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: docs-deploy-trace
+          path: docs-deploy-trace.json
 
       - name: Deploy GitHub Pages
         id: deployment

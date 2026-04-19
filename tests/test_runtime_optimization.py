@@ -36,7 +36,7 @@ def test_prepare_runtime_execution_allows_cpu_bfloat16_amp() -> None:
     assert runtime_execution.amp_requested is True
     assert runtime_execution.amp_active is True
     assert runtime_execution.amp_resolved_dtype == "bfloat16"
-    assert runtime_execution.gradient_scaler is None
+    assert runtime_execution.uses_grad_scaler is False
 
 
 def test_prepare_runtime_execution_rejects_unknown_amp_dtype() -> None:
@@ -113,7 +113,7 @@ def test_parse_train_args_accepts_runtime_optimization_flags() -> None:
     args = parse_train_args(
         [
             "--experiment",
-            "config/gen/baseline",
+            "config/baseline",
             "--compile",
             "--compile-backend",
             "inductor",
