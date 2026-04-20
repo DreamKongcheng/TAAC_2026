@@ -4,7 +4,7 @@
 
 测试套件位于 `tests/`，使用 [pytest](https://docs.pytest.org/) 运行。所有测试按文件名自动标记为 **unit**、**integration** 或 **gpu**——无需手写 `@pytest.mark`，由 `tests/conftest.py` 中的文件名集合统一管理。
 
-CI（`.github/workflows/ci.yml`）现在拆分为 CPU unit、GPU integration/gpu，以及最终 coverage 合并报告。这样做是因为仓库当前固定的是 CUDA 版 TorchRec 和 fbgemm-gpu，部分看似 CPU 断言的测试在导入阶段也会要求 `libcuda.so.1`。
+快速 CI（`.github/workflows/ci.yml`）负责 CPU unit 与 coverage 门槛；GPU 测试与性能测试则分别拆到手动触发的 `.github/workflows/gpu-tests.yml` 和 `.github/workflows/performance-benchmarks.yml`。这样做是因为仓库当前固定的是 CUDA 版 TorchRec 和 fbgemm-gpu，部分看似 CPU 断言的测试在导入阶段也会要求 `libcuda.so.1`，而文档部署不应被等待自托管 runner 的队列阻塞。
 
 ## 快速开始
 
@@ -85,15 +85,26 @@ uv run pytest tests/test_metrics.py tests/test_property_based.py -q
 
 ## CI 流程
 
-CI 在 `ubuntu-latest` + Python 3.13 上运行 CPU 纯逻辑测试与 coverage 汇总，在自托管 GPU runner 上运行 TorchRec/CUDA integration 与 kernel 测试：
+快速 CI 在 `ubuntu-latest` + Python 3.13 上运行 CPU 纯逻辑测试与 coverage 门槛。GPU 测试与 benchmark 改为独立的手动 workflow，在需要时再投递到自托管 GPU runner。文档部署只等待快速 CI 完成。
+
+快速 CI：
 
 1. `uv sync --locked` — 严格锁定环境
 2. `uv run python scripts/lint_torch.py` — torch 导入规范检查
 3. `coverage run --data-file=.coverage.cpu -m pytest -m unit` — CPU 单元测试 + 覆盖率采集
-4. `uv run python scripts/verify_gpu_env.py --json` — 记录 GPU compute capability、精度路由、TorchRec / fbgemm / Triton 以及可选 Transformer Engine 工具链证据
-5. `coverage run --data-file=.coverage.gpu -m pytest -m "integration or gpu"` — GPU runner 上执行 integration + gpu 标记测试
-6. `coverage combine .coverage.cpu .coverage.gpu` — 合并 CPU + GPU 覆盖率
-7. `coverage report` — 门槛校验（< 70 % 失败）
-8. 上传 `coverage.xml` 为 artifact
+4. `coverage report` — 门槛校验（< 70 % 失败）
+5. 上传 `coverage.xml` 为 artifact
+
+手动 GPU 测试：
+
+1. `uv sync --locked` — 在自托管 GPU runner 上同步环境
+2. `uv run python scripts/verify_gpu_env.py --json` — 记录 GPU compute capability、精度路由、TorchRec / fbgemm / Triton 以及可选 Transformer Engine 工具链证据
+3. `coverage run --data-file=.coverage.gpu -m pytest -m "integration or gpu"` — 执行 integration + gpu 标记测试
+
+手动性能测试：
+
+1. `uv sync --locked` — 在自托管 GPU runner 上同步环境
+2. `uv run pytest tests/benchmarks -o python_files='bench_*.py' --benchmark-json=benchmark-result.json -v` — 产出 benchmark 原始结果
+3. `uv run taac-bench-report --input benchmark-result.json` — 生成 benchmark 图表缓存供文档站点复用
 
 如果只在本地 CUDA 机器上复现实验，可继续使用 `scripts/run_gpu_tests.py`。

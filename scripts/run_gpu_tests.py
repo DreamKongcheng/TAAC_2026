@@ -2,7 +2,7 @@
 """Local GPU test runner.
 
 Run GPU tests on a local machine with CUDA hardware.  This script provides
-the same verification sequence as the GPU test job in ``.github/workflows/ci.yml``
+the same verification sequence as the GPU test job in ``.github/workflows/gpu-tests.yml``
 but runs entirely locally, producing a human-readable summary and optional
 JUnit XML / coverage reports.
 

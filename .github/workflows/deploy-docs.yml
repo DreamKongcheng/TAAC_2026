@@ -104,42 +104,25 @@ jobs:
             ${{ runner.os }}-docs-tech-timeline-
 
       - name: Restore benchmark charts cache
-        if: github.event_name != 'push'
-        id: cache-benchmark-charts-exact
+        id: cache-benchmark-charts
         uses: actions/cache/restore@v5
         with:
           path: docs/assets/figures/benchmarks
           key: ${{ runner.os }}-docs-bench-${{ github.event.workflow_run.head_sha || github.sha }}
-
-      - name: Restore benchmark charts cache (docs-only fallback)
-        if: github.event_name == 'push'
-        id: cache-benchmark-charts-push
-        uses: actions/cache/restore@v5
-        with:
-          path: docs/assets/figures/benchmarks
-          key: ${{ runner.os }}-docs-bench-${{ github.sha }}
           restore-keys: |
             ${{ runner.os }}-docs-bench-
 
       - name: Resolve benchmark charts cache status
         id: benchmark-cache-status
         env:
-          EXACT_CACHE_HIT: ${{ steps.cache-benchmark-charts-exact.outputs.cache-hit }}
-          EXACT_CACHE_MATCHED_KEY: ${{ steps.cache-benchmark-charts-exact.outputs.cache-matched-key }}
-          PUSH_CACHE_HIT: ${{ steps.cache-benchmark-charts-push.outputs.cache-hit }}
-          PUSH_CACHE_MATCHED_KEY: ${{ steps.cache-benchmark-charts-push.outputs.cache-matched-key }}
+          CACHE_HIT: ${{ steps.cache-benchmark-charts.outputs.cache-hit }}
+          CACHE_MATCHED_KEY: ${{ steps.cache-benchmark-charts.outputs.cache-matched-key }}
         run: |
-          cache_hit="$EXACT_CACHE_HIT"
-          cache_matched_key="$EXACT_CACHE_MATCHED_KEY"
-          if [[ -z "$cache_hit" ]]; then
-            cache_hit="$PUSH_CACHE_HIT"
-            cache_matched_key="$PUSH_CACHE_MATCHED_KEY"
-          fi
+          cache_hit="$CACHE_HIT"
+          cache_matched_key="$CACHE_MATCHED_KEY"
 
           benchmark_charts_ready=false
-          if [[ "$cache_hit" == "true" ]]; then
-            benchmark_charts_ready=true
-          elif [[ "${{ github.event_name }}" == "push" && -n "$cache_matched_key" ]]; then
+          if [[ "$cache_hit" == "true" ]] || [[ -n "$cache_matched_key" ]]; then
             benchmark_charts_ready=true
           fi
 
@@ -190,7 +173,7 @@ jobs:
 
       - name: Generate benchmark charts
         if: steps.benchmark-cache-status.outputs.benchmark_charts_ready != 'true'
-        run: uv run taac-bench-report --fail-on-empty
+        run: uv run taac-bench-report
 
       - name: Save benchmark charts cache
         if: steps.benchmark-cache-status.outputs.benchmark_charts_ready != 'true'

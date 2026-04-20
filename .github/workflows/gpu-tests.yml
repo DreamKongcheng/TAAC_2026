@@ -1,0 +1,72 @@
+name: GPU Tests
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gpu-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gpu-test:
+    name: GPU Integration & Triton Kernels
+    runs-on: [self-hosted, gpu, linux]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Sync project environment
+        run: uv sync --locked
+
+      - name: Capture GPU runtime evidence
+        run: uv run python scripts/verify_gpu_env.py --json > gpu-env-report.json
+
+      - name: Run integration and GPU tests with coverage
+        run: uv run --with coverage coverage run --data-file=.coverage.gpu -m pytest -m "integration or gpu" -v
+
+      - name: Summarize GPU evidence
+        run: |
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          from tests import conftest
+
+          report = json.loads(Path("gpu-env-report.json").read_text(encoding="utf-8"))
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("## GPU runtime evidence\n\n")
+              handle.write("- verifier: scripts/verify_gpu_env.py --json (same probe used by .devcontainer/post-create.sh)\\n")
+              handle.write(f"- device: {report['device']}\\n")
+              handle.write(f"- torch / torchrec / fbgemm / triton: {report['torch']} / {report['torchrec']} / {report['fbgemm_gpu']} / {report['triton']}\\n")
+              handle.write(f"- executed markers: integration ({len(conftest.INTEGRATION_TEST_FILES)} files) + gpu ({len(conftest.GPU_TEST_FILES)} files)\\n")
+              handle.write(f"- embedding probe: {report['embedding_probe']}\\n")
+          PY
+
+      - name: Upload GPU coverage data
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-gpu-data
+          path: .coverage.gpu
+
+      - name: Upload GPU runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gpu-runtime-evidence
+          path: gpu-env-report.json

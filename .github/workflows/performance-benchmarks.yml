@@ -1,0 +1,134 @@
+name: Performance Benchmarks
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: performance-benchmarks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: [self-hosted, gpu, linux]
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          enable-cache: true
+
+      - name: Restore benchmark charts cache
+        id: cache-benchmark-charts
+        uses: actions/cache/restore@v5
+        with:
+          path: docs/assets/figures/benchmarks
+          key: ${{ runner.os }}-docs-bench-${{ github.sha }}
+
+      - name: Sync project environment
+        run: uv sync --locked
+
+      - name: Run benchmark suite
+        run: |
+          rm -rf .benchmarks outputs/performance benchmark-result.json
+          uv run pytest tests/benchmarks -o python_files='bench_*.py' --benchmark-json=benchmark-result.json -v
+
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: pytest
+          output-file-path: benchmark-result.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          alert-threshold: "115%"
+          comment-on-alert: true
+          fail-on-alert: true
+
+      - name: Generate benchmark charts
+        run: uv run taac-bench-report --input benchmark-result.json
+
+      - name: Save benchmark charts cache
+        if: steps.cache-benchmark-charts.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v5
+        with:
+          path: docs/assets/figures/benchmarks
+          key: ${{ runner.os }}-docs-bench-${{ github.sha }}
+
+      - name: Summarize benchmark evidence
+        run: |
+          uv run python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          performance_dir = Path("outputs/performance")
+          embedding_base = json.loads((performance_dir / "embedding_lookup.json").read_text(encoding="utf-8"))
+          embedding_torchrec = json.loads((performance_dir / "embedding_lookup_torchrec.json").read_text(encoding="utf-8"))
+          attention_base = json.loads((performance_dir / "attention_forward.json").read_text(encoding="utf-8"))
+          attention_triton = json.loads((performance_dir / "attention_forward_triton.json").read_text(encoding="utf-8"))
+
+          embedding_speedup = embedding_torchrec["throughput"] / embedding_base["throughput"]
+          attention_latency_ratio = attention_triton["median_ms"] / attention_base["median_ms"]
+          trace = {
+              "store_result_enabled": True,
+              "alert_threshold_percent": 115,
+              "comment_on_alert": True,
+              "fail_on_alert": True,
+              "embedding_throughput_speedup": embedding_speedup,
+              "attention_latency_ratio": attention_latency_ratio,
+              "artifacts": [
+                  "benchmark-result.json",
+                  "outputs/performance",
+                  "docs/assets/figures/benchmarks",
+              ],
+          }
+          Path("benchmark-trace.json").write_text(json.dumps(trace, indent=2, sort_keys=True), encoding="utf-8")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("## Benchmark evidence\n\n")
+              handle.write(f"- store benchmark history: {trace['store_result_enabled']} (alert threshold 115%, comment-on-alert=true, fail-on-alert=true)\\n")
+              handle.write(
+                  f"- embedding throughput: {embedding_base['throughput']:.2f} -> {embedding_torchrec['throughput']:.2f} lookups/s ({embedding_speedup:.2f}x)\\n"
+              )
+              handle.write(
+                  f"- attention median latency: {attention_base['median_ms']:.4f} ms -> {attention_triton['median_ms']:.4f} ms ({attention_latency_ratio:.3f}x baseline)\\n"
+              )
+              handle.write("- artifacts: benchmark-result.json, outputs/performance/, docs/assets/figures/benchmarks/\\n")
+          PY
+
+      - name: Upload benchmark raw results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-raw-results
+          path: |
+            benchmark-result.json
+            outputs/performance
+
+      - name: Upload benchmark charts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-charts
+          path: docs/assets/figures/benchmarks
+
+      - name: Upload benchmark trace
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: benchmark-trace
+          path: benchmark-trace.json
