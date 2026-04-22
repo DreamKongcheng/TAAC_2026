@@ -8,6 +8,9 @@
   <a href="https://github.com/Puiching-Memory/TAAC_2026/actions/workflows/ci.yml">
     <img src="https://github.com/Puiching-Memory/TAAC_2026/actions/workflows/ci.yml/badge.svg" alt="CI">
   </a>
+  <a href="https://puiching-memory.github.io/TAAC_2026/">
+    <img src="https://img.shields.io/badge/Docs-Online-0A7B83.svg" alt="Online Docs">
+  </a>
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License">
   <img src="https://img.shields.io/badge/Python-3.12%2B-blue.svg" alt="Python">
   <img src="https://img.shields.io/badge/PyTorch-2.6%2B-EE4C2C.svg" alt="PyTorch">
@@ -20,31 +23,36 @@
   <a href="https://algo.qq.com/#intro">Competition</a> ·
   <a href="docs/getting-started.md">Quick Start</a> ·
   <a href="docs/experiments/index.md">Experiments</a> ·
-  <a href="docs/index.md">Docs</a>
+  <a href="docs/index.md">Docs</a> ·
+  <a href="https://puiching-memory.github.io/TAAC_2026/">Online Docs</a>
 </p>
 
 > [!NOTE]
-> 这是 TAAC 2026 其中一个参赛队伍的代码仓库，不代表官方文档。
+> 这是 TAAC 2026 其中一个参赛队伍的代码仓库，不代表官方文档。  
 > 我们的目标是提供一个开箱即用、便于扩展和回归验证的实验工作区，
 > 以促进社区在统一序列建模与特征交互方向上的研究和创新。
 
 > [!IMPORTANT]
-> 本项目会继续维护，但仍有几条边界需要提前说明：
+> 感谢各位的支持, 本项目会继续维护，但是需要提前说明：
 > 1. 我们无法保证 API 长期稳定。
 > 2. 各子模型的研究与复现状态并不等于 100% 官方还原。
 >
-> 当前仓库更擅长的事情是：
+> 当前仓库的主要开发方向是：
 > 1. 提供开箱可用的训练与评估框架。
 > 2. 支持大算力场景下的超参数搜索和实验管理。
 > 3. 持续同步最新论文、公开方案和可复核实验包。
 
-这是一个面向 TAAC 2026 的实验工作区。我们把共享训练底座、目录式实验包、统一输出产物和回归测试放进同一套工程里，让新实验可以更快接入、训练、评估和复核。
+这是一个完全面向 TAAC 2026 大赛的实验工作区。设计目标是共享训练底座、目录式实验包、统一输出产物和回归测试放进同一套工程里，让新实验可以更快接入、训练、评估和复核。
 
-## 项目简介
+## 比赛简介
 
-推荐系统作为大规模内容平台（信息流、短视频等）与数字广告（点击率/转化率预估等）的核心引擎，直接决定了用户体验、参与度及平台商业收益。面对海量并发请求与严苛的实时响应约束，现代推荐系统每日需完成数十亿次在线决策，支撑起规模庞大的数字广告生态。过去二十年间，推荐技术主要沿两条路径演进：一是**特征交互模型**，专注于高维稀疏多域特征与上下文信号的深度交叉；二是**序列模型**，借助 Embedding 检索与 Transformer 架构捕捉用户行为的时序动态。尽管两条路线各自成果丰硕，但长期以来的割裂发展导致工业界系统面临结构性瓶颈：跨范式交互浅层化、优化目标不一致、扩展能力受限，以及日益攀升的硬件与工程复杂度。随着序列长度与模型参数的持续增长，这种碎片化架构的效率瓶颈愈发凸显。
+推荐系统作为大规模内容平台（信息流、短视频等）与数字广告（点击率/转化率预估等）的核心引擎，直接决定了用户体验、参与度及平台商业收益。面对海量并发请求与严苛的实时响应约束，现代推荐系统每日需完成数十亿次在线决策，支撑起规模庞大的数字广告生态。  
 
-近年来，学界与工业界开始探索融合这两大传统分支的统一建模范式 [1–3]。为加速该方向的突破，我们发起"**迈向统一序列建模与特征交互的大规模推荐系统**"挑战赛。我们鼓励参赛者设计统一的 Tokenization 方案与同质化、可堆叠的骨干网络，在单一架构内同时建模用户行为序列与非序列多域特征，完成转化率预估任务。参赛队伍将依据 ROC 曲线下面积（AUC）进行统一排名。除排行榜外，本次大赛特设两项创新奖——**统一模块创新奖**（45,000 美元）与**Scaling Law 创新奖**（45,000 美元），分别表彰在统一架构设计与系统性缩放规律探索方面的杰出工作。创新奖与排行榜名次独立评审，研讨会论文录用将重点考察方法在上述两个方向的新颖性与洞察力，而非单纯追求 AUC 指标。
+过去二十年间，推荐技术主要沿两条路径演进：一是**特征交互模型**，专注于高维稀疏多域特征与上下文信号的深度交叉；二是**序列模型**，借助 Embedding 检索与 Transformer 架构捕捉用户行为的时序动态。尽管两条路线各自成果丰硕，但长期以来的割裂发展导致工业界系统面临结构性瓶颈：跨范式交互浅层化、优化目标不一致、扩展能力受限，以及日益攀升的硬件与工程复杂度。随着序列长度与模型参数的持续增长，这种碎片化架构的效率瓶颈愈发凸显。
+
+近年来，学界与工业界开始探索融合这两大传统分支的统一建模范式 [1~3]。为加速该方向的突破，我们发起"**迈向统一序列建模与特征交互的大规模推荐系统**"挑战赛。我们鼓励参赛者设计统一的 Tokenization 方案与同质化、可堆叠的骨干网络，在单一架构内同时建模用户行为序列与非序列多域特征，完成转化率预估任务。  
+
+参赛队伍将依据 ROC 曲线下面积（AUC）进行统一排名。除排行榜外，本次大赛特设两项创新奖——**统一模块创新奖**（45,000 美元）与**Scaling Law 创新奖**（45,000 美元），分别表彰在统一架构设计与系统性缩放规律探索方面的杰出工作。创新奖与排行榜名次独立评审，研讨会论文录用将重点考察方法在上述两个方向的新颖性与洞察力，而非单纯追求 AUC 指标。
 
 ------
 
@@ -53,11 +61,6 @@
 ![Model Performance VS Size](figures/model_performance_vs_size.svg)
 
 ![Model Performance VS Compute](figures/model_performance_vs_compute.svg)
-
-我们的目标很简单：在一套统一的 parquet batch 上，能快速接进来、跑起来、评估掉、还有回归保障。
-
-1. `src/taac2026`：共享底座，提供 FolderExperiment 加载、训练入口、评估入口、基础指标，以及 checkpoint / summary 的读写能力。
-2. `config/<name>`：目录式实验包。每个包自己管理 `data.py`、`model.py`、`utils.py`、`__init__.py`，配套说明统一收口到 `docs/experiments/<name>.md`，并直接导出 `EXPERIMENT`。
 
 ## 快速开始
 
@@ -72,7 +75,7 @@ uv run taac-train --experiment config/baseline
 uv run taac-package-train --experiment config/baseline
 
 # 用 optuna 搜索 baseline，默认会按当前可见 GPU 空闲显存自动并行派发 trial
-# 默认约束仍然是参数量 <= 3 GiB、验证集端到端推理总时长 <= 180 秒
+# 默认约束参数量 <= 3 GiB
 uv run taac-search --experiment config/baseline --trials 20
 
 # 评估默认输出目录中的 best.pt；single 模式始终只评估一个实验/一个 checkpoint
@@ -95,10 +98,6 @@ uv run taac-train --experiment config/baseline --dataset-path some_owner/some_da
 
 若目标 Hub 数据集尚未缓存，`datasets` 会自动下载并写入本地缓存。
 
-仓库在 `pyproject.toml` 里固定了 `uv` 的 canonical 默认索引，用来保证 `uv.lock` 在本机和 CI 间保持一致。
-如果你的机器全局把 `uv` 换到国内镜像，普通 `uv sync --locked` 仍会按项目配置工作；不要再额外传 `--default-index` 或 `--index-url` 指向镜像，否则 `uv` 会判定 `uv.lock` 需要更新。
-如果只是想加速下载，优先使用系统代理、透明代理或企业缓存代理；如果你确实临时用镜像做过一次重锁，提交前请执行 `uv lock --default-index https://pypi.org/simple --python 3.13` 把锁文件归一回仓库基线。
-
 ```bash
 # 跑完整训练栈回归
 uv run pytest tests -q
@@ -106,20 +105,21 @@ uv run pytest tests -q
 
 更细的测试分层、Property/Fault/Recovery 回归入口和模块改动后的最小复核集合，见 `TESTING.md`。
 
-## 当前独立实验包
+## 当前支持实验包
 
-| 实验包         | 目录                                                   | 公开来源                                                                                                                                      | 默认输出目录                 | 可复核状态                         |
-| -------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | ---------------------------------- |
-| Baseline       | [config/baseline](config/baseline)                     | 本仓库维护的 starter/reference package，强调可扩展性、注释与二次开发体验                                                                     | `outputs/config/baseline`    | 可直接运行，待新一轮 smoke 记录    |
-| Grok           | [config/grok](config/grok)                             | 从旧 `baseline` 中拆分出来的本地 grok 方案                                                                                                   | `outputs/config/grok`        | 历史产物仍保留在 legacy baseline 路径 |
-| CTR Baseline   | [config/ctr_baseline](config/ctr_baseline)             | [creatorwyx/TAAC2026-CTR-Baseline](https://github.com/creatorwyx/TAAC2026-CTR-Baseline)                                                       | `outputs/config/ctr_baseline` | forward regression + smoke summary |
-| DeepContextNet | [config/deepcontextnet](config/deepcontextnet)         | [suyanli220/TAAC-2026-Baseline-Tencent-Advertisement-Contest](https://github.com/suyanli220/TAAC-2026-Baseline-Tencent-Advertisement-Contest) | `outputs/config/deepcontextnet` | forward regression + smoke summary |
-| InterFormer    | [config/interformer](config/interformer)               | [InterFormer paper](https://arxiv.org/abs/2411.09852)                                                                                         | `outputs/config/interformer` | forward regression + smoke summary |
-| OneTrans       | [config/onetrans](config/onetrans)                     | [OneTrans paper](https://arxiv.org/abs/2510.26104)                                                                                            | `outputs/config/onetrans`    | forward regression + smoke summary |
-| HyFormer       | [config/hyformer](config/hyformer)                     | [HyFormer paper](https://arxiv.org/abs/2601.12681)                                                                                            | `outputs/config/hyformer`    | forward regression + smoke summary |
-| UniRec         | [config/unirec](config/unirec)                         | [hojiahao/TAAC2026](https://github.com/hojiahao/TAAC2026)                                                                                     | `outputs/config/unirec`      | forward regression + smoke summary |
-| UniScaleFormer | [config/uniscaleformer](config/uniscaleformer)         | [twx145/Unirec](https://github.com/twx145/Unirec)                                                                                             | `outputs/config/uniscaleformer` | forward regression + smoke summary |
-| O_o            | [config/oo](config/oo)                                 | [salmon1802/O_o](https://github.com/salmon1802/O_o)                                                                                           | `outputs/config/oo`          | forward regression + smoke summary |
+| 实验包         | 目录                                           | 公开来源                                                                                                                                      |
+| -------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Baseline       | [config/baseline](config/baseline)             | 本仓库维护，强调可扩展性、注释与二次开发体验                                                                                                  |
+| Symbiosis      | [config/symbiosis](config/symbiosis)           | 本仓库维护, 比赛用的实验模型, 暂时闭源                                                                                                        |
+| Grok           | [config/grok](config/grok)                     | [xai-org/x-algorithm](https://github.com/xai-org/x-algorithm)                                                                                 |
+| CTR Baseline   | [config/ctr_baseline](config/ctr_baseline)     | [creatorwyx/TAAC2026-CTR-Baseline](https://github.com/creatorwyx/TAAC2026-CTR-Baseline)                                                       |
+| DeepContextNet | [config/deepcontextnet](config/deepcontextnet) | [suyanli220/TAAC-2026-Baseline-Tencent-Advertisement-Contest](https://github.com/suyanli220/TAAC-2026-Baseline-Tencent-Advertisement-Contest) |
+| InterFormer    | [config/interformer](config/interformer)       | [InterFormer paper](https://arxiv.org/abs/2411.09852)                                                                                         |
+| OneTrans       | [config/onetrans](config/onetrans)             | [OneTrans paper](https://arxiv.org/abs/2510.26104)                                                                                            |
+| HyFormer       | [config/hyformer](config/hyformer)             | [HyFormer paper](https://arxiv.org/abs/2601.12681)                                                                                            |
+| UniRec         | [config/unirec](config/unirec)                 | [hojiahao/TAAC2026](https://github.com/hojiahao/TAAC2026)                                                                                     |
+| UniScaleFormer | [config/uniscaleformer](config/uniscaleformer) | [twx145/Unirec](https://github.com/twx145/Unirec)                                                                                             |
+| O_o            | [config/oo](config/oo)                         | [salmon1802/O_o](https://github.com/salmon1802/O_o)                                                                                           |
 
 更详细的训练命令、线上训练打包说明和各实验包说明，可以看 [docs/getting-started.md](docs/getting-started.md)、[docs/guide/online-training-bundle.md](docs/guide/online-training-bundle.md)、[docs/experiments/index.md](docs/experiments/index.md) 和 [docs/architecture.md](docs/architecture.md)。
 
@@ -137,23 +137,31 @@ Academic Track
 
 ## Dataset&Task
 
-https://huggingface.co/datasets/TAAC2026/data_sample_1000
+> [!NOTE]
+> 本次比赛发布的数据集经过完全匿名化处理，不反映腾讯广告平台的实际生产特性。  
+> 
+> 依据2025届公开的论文信息, 我们推测这些特征很可能已经经过了来自不同模态的emb模型预处理
 
-本次比赛发布的数据集经过完全匿名化处理，不反映腾讯广告平台的实际生产特性。
+> [!IMPORTANT]
+> **Update [2026.04.10]**: 示例数据集已更新为扁平列布局格式，特征名已重命名，新增序列特征。请参考最新的 `demo_1000.parquet` 和 HuggingFace 上的 README 获取最新 schema 详情。  
+> 
+> 本项目已经同步更新最新的数据格式
+
+下载链接: https://huggingface.co/datasets/TAAC2026/data_sample_1000
 
 我们的数据集是一个基于真实广告日志构建的大规模工业级数据集，采用扁平列布局（flat column layout），所有特征作为独立的顶级列存储在 Parquet 文件中。数据集包含 120 列，分为以下几类：
 
-- **ID 与标签**（5 列）：`user_id`、`item_id`、`label_type`、`label_time`、`timestamp`
-- **用户整型特征**（46 列）：`user_int_feats_{fid}` — 标量 `int64` 或 `list<int64>`
-- **用户稠密特征**（10 列）：`user_dense_feats_{fid}` — `list<float>`
-- **物品整型特征**（14 列）：`item_int_feats_{fid}` — 标量 `int64` 或 `list<int64>`
-- **域行为序列特征**（45 列）：`domain_{a,b,c,d}_seq_{fid}` — `list<int64>`，来自 4 个行为域
+| 特征分组       | 列数 | 字段模式 / 示例                                               | 类型说明                       |
+| -------------- | ---- | ------------------------------------------------------------- | ------------------------------ |
+| ID 与标签      | 5    | `user_id`、`item_id`、`label_type`、`label_time`、`timestamp` | 标识列与监督标签               |
+| 用户整型特征   | 46   | `user_int_feats_{fid}`                                        | 标量 `int64` 或 `list<int64>`  |
+| 用户稠密特征   | 10   | `user_dense_feats_{fid}`                                      | `list<float>`                  |
+| 物品整型特征   | 14   | `item_int_feats_{fid}`                                        | 标量 `int64` 或 `list<int64>`  |
+| 域行为序列特征 | 45   | `domain_{a,b,c,d}_seq_{fid}`                                  | `list<int64>`，来自 4 个行为域 |
 
 为确保公平性和保护隐私，所有稀疏特征均以匿名整数ID表示，稠密特征则以固定长度的浮点向量提供。不发布任何原始内容（如文本、图像、URL）或个人身份信息。
 
 此外，我们提供了一些示例样本供参考：
-
-> ⚠️ **Update [2026.04.10]**: 示例数据集已更新为扁平列布局格式，特征名已重命名，新增序列特征。请参考最新的 `demo_1000.parquet` 和 HuggingFace 上的 README 获取最新 schema 详情。
 
 ```python
 import pandas as pd
