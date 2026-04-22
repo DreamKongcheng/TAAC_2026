@@ -62,7 +62,7 @@ class ModelPoint:
     auc: float
     params_million: float
     parameter_size_mb: float
-    total_tflops: float
+    profile_tflops: float
     source: str
     evidence_path: str | None = None
 
@@ -88,7 +88,7 @@ def _point_from_payload(slug: str, label: str, payload: dict, *, source: str, ev
         auc=float(metrics["auc"]),
         params_million=params_million,
         parameter_size_mb=parameter_size_mb,
-        total_tflops=float(compute_profile.get("train_step_tflops", 0.0)),
+        profile_tflops=float(compute_profile.get("train_step_tflops", 0.0)),
         source=source,
         evidence_path=evidence_path,
     )
@@ -141,7 +141,7 @@ def _parse_experiments_doc_table(table_lines: list[str]) -> dict[str, ModelPoint
         try:
             parameter_size_mb = float(cells[size_index])
             auc = float(cells[auc_index])
-            total_tflops = float(cells[tflops_index])
+            profile_tflops = float(cells[tflops_index])
         except ValueError:
             continue
         points[slug] = ModelPoint(
@@ -150,7 +150,7 @@ def _parse_experiments_doc_table(table_lines: list[str]) -> dict[str, ModelPoint
             auc=auc,
             params_million=parameter_size_mb * 1024.0 * 1024.0 / 4.0e6,
             parameter_size_mb=parameter_size_mb,
-            total_tflops=total_tflops,
+            profile_tflops=profile_tflops,
             source="docs",
         )
     return points
@@ -245,7 +245,7 @@ def metric_config(x_metric: XMetric) -> dict[str, object]:
             "title": "Model Performance VS Compute",
             "xlabel": "Profiled Single Train-Step Compute (TFLOPs)",
             "subtitle": "sample parquet, baseline point overridden by optuna best when available",
-            "x_getter": lambda point: point.total_tflops,
+            "x_getter": lambda point: point.profile_tflops,
             "x_formatter": FuncFormatter(lambda value, _pos: f"{value:g}"),
             "x_scale": "log",
             "x_ticks": [0.1, 0.2, 0.5, 1, 2, 5, 10, 20],

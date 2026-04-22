@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -11,7 +12,7 @@ from taac2026.application.training.profiling import (
     measure_latency,
 )
 from taac2026.domain.config import ModelConfig, TrainConfig
-from taac2026.domain.features import FeatureSchema, FeatureTableSpec
+from taac2026.domain.features import FeatureSchema, FeatureTableSpec, build_default_feature_schema
 from tests.support import (
     TestWorkspace,
     build_local_data_pipeline,
@@ -95,6 +96,32 @@ def test_build_synthetic_profile_batch_supports_empty_sequence_names(test_worksp
     data_config.sequence_names = ()
 
     batch = build_synthetic_profile_batch(data_config, model_config, batch_size=1)
+
+    assert batch.batch_size == 1
+    assert batch.sparse_features is not None
+    assert batch.sequence_features is not None
+
+
+def test_build_synthetic_profile_batch_respects_explicit_empty_feature_schema_sequences(
+    test_workspace: TestWorkspace,
+) -> None:
+    model_config = ModelConfig(name="profile_test", **test_workspace.model_kwargs)
+    empty_sequence_data_config = replace(test_workspace.data_config, sequence_names=())
+    empty_sequence_schema = build_default_feature_schema(empty_sequence_data_config, model_config)
+    feature_schema = FeatureSchema(
+        tables=empty_sequence_schema.tables,
+        dense_dim=empty_sequence_schema.dense_dim,
+        sequence_names=(),
+        variant=empty_sequence_schema.variant,
+        auto_sync=False,
+    )
+
+    batch = build_synthetic_profile_batch(
+        test_workspace.data_config,
+        model_config,
+        feature_schema=feature_schema,
+        batch_size=1,
+    )
 
     assert batch.batch_size == 1
     assert batch.sparse_features is not None

@@ -68,7 +68,7 @@ def test_load_base_points_falls_back_to_experiments_doc(tmp_path: Path) -> None:
     baseline = next(point for point in points if point.slug == "baseline")
     assert baseline.source == "docs"
     assert baseline.auc == 0.812
-    assert baseline.total_tflops == 2.5
+    assert baseline.profile_tflops == 2.5
 
 
 def test_plot_model_performance_merges_search_trials_and_writes_outputs(tmp_path: Path) -> None:

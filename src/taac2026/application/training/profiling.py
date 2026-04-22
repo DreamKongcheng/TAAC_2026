@@ -230,7 +230,7 @@ def build_synthetic_profile_batch(
 ) -> BatchTensors:
     resolved_feature_schema = sync_feature_schema(feature_schema, data_config, model_config)
     resolved_batch_size = max(1, int(batch_size))
-    sequence_names = resolved_feature_schema.sequence_names or tuple(data_config.sequence_names)
+    sequence_names = resolved_feature_schema.sequence_names
     validate_default_feature_schema(resolved_feature_schema, sequence_names)
     history_capacity = _table_max_length(
         resolved_feature_schema,
