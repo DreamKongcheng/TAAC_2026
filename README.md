@@ -207,6 +207,7 @@ print(df.columns)     # ['user_id', 'item_id', 'label_type', ...]
 1. [reczoo/FuxiCTR](https://github.com/reczoo/FuxiCTR) CTR 预测开源底座，长处是可配置、可调参与可复现实验，适合快速对照经典 ranking 模型与数据管线。
 2. [meta-recsys/generative-recommenders](https://github.com/meta-recsys/generative-recommenders) Meta 官方 HSTU / Generative Recommenders 代码，包含训练、推理与公开实验脚本，是统一生成式路线的重要工程参考。
 3. [snap-research/GRID](https://github.com/snap-research/GRID) Semantic ID 生成式推荐框架，串起文本 embedding、RQ 式语义 ID 学习与 Transformer 解码，适合后续探索 item-side semantic tokenization。
+4. [datawhalechina/torch-rechub](https://github.com/datawhalechina/torch-rechub) 轻量级 PyTorch 推荐框架，覆盖 matching、ranking、multi-task 与 generative 等多类模型，并提供统一训练流程、ONNX 导出与工程化示例，适合作为经典推荐建模与部署链路的对照参考。
 
 ## References
 1. InterFormer: Effective Heterogeneous Interaction Learning for Click-Through Rate Prediction. CIKM, 2025.  
